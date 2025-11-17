@@ -1,5 +1,6 @@
-use crate::url::URL;
+use crate::{browser::Browser, url::URL};
 
+mod browser;
 mod url;
 
 fn main() {
@@ -7,6 +8,9 @@ fn main() {
     let url = URL::new(url_str);
     let body = url.request();
     show(&body);
+
+    let mut browser = Browser::default();
+    browser.init();
 }
 
 fn show(body: &str) {
