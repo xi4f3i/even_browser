@@ -1,6 +1,7 @@
-use std::ffi::CString;
-use std::num::NonZeroU32;
-
+use crate::constant::{HEIGHT, SCROLL_STEP, VSTEP, WIDTH};
+use crate::layout::{DisplayItem, Layout};
+use crate::lexer::lex;
+use crate::url::URL;
 use gl_rs as gl;
 use gl_rs::types::GLint;
 use glutin::config::{ConfigTemplateBuilder, GlConfig};
@@ -16,17 +17,15 @@ use skia_safe::gpu::gl::Format;
 use skia_safe::gpu::gl::FramebufferInfo;
 use skia_safe::gpu::gl::Interface;
 use skia_safe::gpu::{DirectContext, SurfaceOrigin, backend_render_targets};
-use skia_safe::{Color, ColorType, Font, FontMgr, Paint, Point, Surface, gpu};
+use skia_safe::{Color, ColorType, Paint, Point, Surface, gpu};
+use std::ffi::CString;
+use std::num::NonZeroU32;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowAttributes, WindowId};
-
-use crate::constant::{HEIGHT, VSTEP, WIDTH};
-use crate::layout::{Glyph, layout};
-use crate::lexer::lex;
-use crate::url::URL;
 
 // Guarantee the drop order inside the FnMut closure. `Window` _must_ be dropped after
 // `DirectContext`.
@@ -44,24 +43,25 @@ struct Env {
 #[derive(Default, Debug)]
 pub struct Browser {
     env: Option<Env>,
-    display_list: Vec<Glyph>,
+    display_list: Vec<DisplayItem>,
     scroll: f32,
 }
 
 impl Browser {
     pub fn init(&mut self) {
         self.scroll = 0.0;
-
-        let event_loop = EventLoop::new().expect("Failed to create event loop");
-        event_loop.set_control_flow(ControlFlow::Wait);
-        event_loop.run_app(self).expect("run() failed");
     }
 
     pub fn load(&mut self, url: &URL) {
         let body = url.request();
-        let text = lex(&body);
-        self.display_list = layout(&text);
-        // self.draw();
+        let tokens = lex(&body);
+        self.display_list = Layout::new(tokens).display_list;
+    }
+
+    pub fn run(&mut self) {
+        let event_loop = EventLoop::new().expect("Failed to create event loop");
+        event_loop.set_control_flow(ControlFlow::Wait);
+        event_loop.run_app(self).expect("run() failed");
     }
 
     fn draw(&mut self) {
@@ -74,43 +74,27 @@ impl Browser {
             let scale_factor = env.window.scale_factor() as f32;
             canvas.scale((scale_factor, scale_factor));
 
-            let font_mgr = FontMgr::new();
-            let typeface = font_mgr
-                .match_family_style("PingFang SC", Default::default())
-                .expect("Cannot find PingFang SC font");
-            let font = Font::new(typeface, VSTEP);
-
             let mut paint = Paint::default();
             paint.set_color(Color::BLACK);
             paint.set_anti_alias(true);
 
-            let mut buf = [0u8; 4];
-
-            for glyph in &self.display_list {
-                if glyph.y > self.scroll + HEIGHT {
+            for item in &self.display_list {
+                if item.y > self.scroll + HEIGHT {
                     continue;
                 }
 
-                if glyph.y + VSTEP < self.scroll {
+                if item.y + VSTEP < self.scroll {
                     continue;
                 }
 
-                let centered_point = Point::new(glyph.x, glyph.y);
-
-                canvas.draw_str(glyph.c.encode_utf8(&mut buf), centered_point, &font, &paint);
+                let point = Point::new(item.x, item.y);
+                canvas.draw_str(&item.text, point, &item.font, &paint);
             }
 
             canvas.restore();
 
             env.gr_context.flush_and_submit();
             env.gl_surface.swap_buffers(&env.gl_context).unwrap();
-
-            // Queue a RedrawRequested event.
-            //
-            // You only need to call this if you've determined that you need to redraw in
-            // applications which do not always need to. Applications that redraw continuously
-            // can render here instead.
-            env.window.request_redraw();
         }
     }
 }
@@ -257,8 +241,6 @@ impl ApplicationHandler for Browser {
             gl_surface,
         });
 
-        self.draw();
-
         if let Some(env) = &self.env {
             env.window.request_redraw();
         }
@@ -275,14 +257,37 @@ impl ApplicationHandler for Browser {
                 println!("The close button was pressed; stopping");
                 event_loop.exit();
             }
-            // TODO: handle resize event
-            // WindowEvent::Resized => {
-            //     println!("WindowEvent::Resized");
-            // }
             WindowEvent::RedrawRequested => {
-                // println!("WindowEvent::RedrawRequested");
-                // self.draw();
+                self.draw();
             }
+            WindowEvent::KeyboardInput {
+                event: key_event, ..
+            } => {
+                if key_event.state.is_pressed() {
+                    match key_event.logical_key {
+                        Key::Named(NamedKey::ArrowDown) => {
+                            self.scroll += SCROLL_STEP;
+
+                            if let Some(env) = &self.env {
+                                env.window.request_redraw();
+                            }
+                        }
+                        Key::Named(NamedKey::ArrowUp) => {
+                            self.scroll -= SCROLL_STEP;
+
+                            if self.scroll < 0.0 {
+                                self.scroll = 0.0;
+                            }
+
+                            if let Some(env) = &self.env {
+                                env.window.request_redraw();
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+            }
+
             _ => (),
         }
     }
