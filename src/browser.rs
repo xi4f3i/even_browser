@@ -23,6 +23,11 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowAttributes, WindowId};
 
+use crate::constant::{HEIGHT, VSTEP, WIDTH};
+use crate::layout::{Glyph, layout};
+use crate::lexer::lex;
+use crate::url::URL;
+
 // Guarantee the drop order inside the FnMut closure. `Window` _must_ be dropped after
 // `DirectContext`.
 //
@@ -39,13 +44,74 @@ struct Env {
 #[derive(Default, Debug)]
 pub struct Browser {
     env: Option<Env>,
+    display_list: Vec<Glyph>,
+    scroll: f32,
 }
 
 impl Browser {
     pub fn init(&mut self) {
+        self.scroll = 0.0;
+
         let event_loop = EventLoop::new().expect("Failed to create event loop");
         event_loop.set_control_flow(ControlFlow::Wait);
         event_loop.run_app(self).expect("run() failed");
+    }
+
+    pub fn load(&mut self, url: &URL) {
+        let body = url.request();
+        let text = lex(&body);
+        self.display_list = layout(&text);
+        // self.draw();
+    }
+
+    fn draw(&mut self) {
+        if let Some(env) = &mut self.env {
+            let canvas = env.surface.canvas();
+            canvas.clear(Color::WHITE);
+
+            canvas.save();
+
+            let scale_factor = env.window.scale_factor() as f32;
+            canvas.scale((scale_factor, scale_factor));
+
+            let font_mgr = FontMgr::new();
+            let typeface = font_mgr
+                .match_family_style("PingFang SC", Default::default())
+                .expect("Cannot find PingFang SC font");
+            let font = Font::new(typeface, VSTEP);
+
+            let mut paint = Paint::default();
+            paint.set_color(Color::BLACK);
+            paint.set_anti_alias(true);
+
+            let mut buf = [0u8; 4];
+
+            for glyph in &self.display_list {
+                if glyph.y > self.scroll + HEIGHT {
+                    continue;
+                }
+
+                if glyph.y + VSTEP < self.scroll {
+                    continue;
+                }
+
+                let centered_point = Point::new(glyph.x, glyph.y);
+
+                canvas.draw_str(glyph.c.encode_utf8(&mut buf), centered_point, &font, &paint);
+            }
+
+            canvas.restore();
+
+            env.gr_context.flush_and_submit();
+            env.gl_surface.swap_buffers(&env.gl_context).unwrap();
+
+            // Queue a RedrawRequested event.
+            //
+            // You only need to call this if you've determined that you need to redraw in
+            // applications which do not always need to. Applications that redraw continuously
+            // can render here instead.
+            env.window.request_redraw();
+        }
     }
 }
 
@@ -54,7 +120,7 @@ impl ApplicationHandler for Browser {
         println!("ApplicationHandler::resumed");
         let window_attributes = WindowAttributes::default()
             .with_title("Even Browser")
-            .with_inner_size(LogicalSize::new(800, 600));
+            .with_inner_size(LogicalSize::new(WIDTH, HEIGHT));
 
         let template = ConfigTemplateBuilder::new()
             .with_alpha_size(8)
@@ -173,7 +239,7 @@ impl ApplicationHandler for Browser {
         let backend_render_target =
             backend_render_targets::make_gl(size, num_samples, stencil_size, fb_info);
 
-        let mut surface = gpu::surfaces::wrap_backend_render_target(
+        let surface = gpu::surfaces::wrap_backend_render_target(
             &mut gr_context,
             &backend_render_target,
             SurfaceOrigin::BottomLeft,
@@ -183,42 +249,6 @@ impl ApplicationHandler for Browser {
         )
         .expect("Could not create skia surface");
 
-        let canvas = surface.canvas();
-        canvas.clear(Color::WHITE);
-
-        let font_mgr = FontMgr::new();
-        let typeface = font_mgr
-            .match_family_style("Helvetica", Default::default())
-            .expect("Cannot find Helvetica font");
-        let font = Font::new(typeface, 48.0);
-
-        let mut paint = Paint::default();
-        paint.set_color(Color::BLACK);
-        paint.set_anti_alias(true);
-
-        let text = "Hello, world!";
-
-        let dim = canvas.image_info().dimensions();
-        let center = (dim.width / 2, dim.height / 2);
-
-        let (_width_advance, bounds) = font.measure_str(text, Some(&paint));
-        let draw_x = center.0 as f32 - (bounds.left + bounds.width() / 2.0);
-        let draw_y = center.1 as f32 - (bounds.top + bounds.height() / 2.0);
-
-        let centered_point = Point::new(draw_x, draw_y);
-
-        canvas.draw_str(text, centered_point, &font, &paint);
-
-        gr_context.flush_and_submit();
-        gl_surface.swap_buffers(&gl_context).unwrap();
-
-        // Queue a RedrawRequested event.
-        //
-        // You only need to call this if you've determined that you need to redraw in
-        // applications which do not always need to. Applications that redraw continuously
-        // can render here instead.
-        // window.request_redraw();
-
         self.env = Some(Env {
             window,
             surface,
@@ -226,6 +256,12 @@ impl ApplicationHandler for Browser {
             gr_context,
             gl_surface,
         });
+
+        self.draw();
+
+        if let Some(env) = &self.env {
+            env.window.request_redraw();
+        }
     }
 
     fn window_event(
@@ -245,6 +281,7 @@ impl ApplicationHandler for Browser {
             // }
             WindowEvent::RedrawRequested => {
                 // println!("WindowEvent::RedrawRequested");
+                // self.draw();
             }
             _ => (),
         }
