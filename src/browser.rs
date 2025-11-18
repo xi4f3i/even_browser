@@ -12,7 +12,9 @@ use glutin::surface::{
 };
 use glutin_winit::DisplayBuilder;
 use raw_window_handle::HasWindowHandle;
+use skia_safe::gpu::gl::Format;
 use skia_safe::gpu::gl::FramebufferInfo;
+use skia_safe::gpu::gl::Interface;
 use skia_safe::gpu::{DirectContext, SurfaceOrigin, backend_render_targets};
 use skia_safe::{Color, ColorType, Font, FontMgr, Paint, Point, Surface, gpu};
 use winit::application::ApplicationHandler;
@@ -49,6 +51,7 @@ impl Browser {
 
 impl ApplicationHandler for Browser {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        println!("ApplicationHandler::resumed");
         let window_attributes = WindowAttributes::default()
             .with_title("Even Browser")
             .with_inner_size(LogicalSize::new(800, 600));
@@ -135,7 +138,7 @@ impl ApplicationHandler for Browser {
                 .get_proc_address(CString::new(s).unwrap().as_c_str())
         });
 
-        let interface = skia_safe::gpu::gl::Interface::new_load_with(|name| {
+        let interface = Interface::new_load_with(|name| {
             if name == "eglGetCurrentDisplay" {
                 return std::ptr::null();
             }
@@ -145,7 +148,7 @@ impl ApplicationHandler for Browser {
         })
         .expect("Could not create interface");
 
-        let mut gr_context = skia_safe::gpu::direct_contexts::make_gl(interface, None)
+        let mut gr_context = gpu::direct_contexts::make_gl(interface, None)
             .expect("Could not create direct context");
 
         let fb_info = {
@@ -154,7 +157,7 @@ impl ApplicationHandler for Browser {
 
             FramebufferInfo {
                 fboid: fboid.try_into().unwrap(),
-                format: skia_safe::gpu::gl::Format::RGBA8.into(),
+                format: Format::RGBA8.into(),
                 ..Default::default()
             }
         };
@@ -170,7 +173,7 @@ impl ApplicationHandler for Browser {
         let backend_render_target =
             backend_render_targets::make_gl(size, num_samples, stencil_size, fb_info);
 
-        let surface = gpu::surfaces::wrap_backend_render_target(
+        let mut surface = gpu::surfaces::wrap_backend_render_target(
             &mut gr_context,
             &backend_render_target,
             SurfaceOrigin::BottomLeft,
@@ -179,6 +182,42 @@ impl ApplicationHandler for Browser {
             None,
         )
         .expect("Could not create skia surface");
+
+        let canvas = surface.canvas();
+        canvas.clear(Color::WHITE);
+
+        let font_mgr = FontMgr::new();
+        let typeface = font_mgr
+            .match_family_style("Helvetica", Default::default())
+            .expect("Cannot find Helvetica font");
+        let font = Font::new(typeface, 48.0);
+
+        let mut paint = Paint::default();
+        paint.set_color(Color::BLACK);
+        paint.set_anti_alias(true);
+
+        let text = "Hello, world!";
+
+        let dim = canvas.image_info().dimensions();
+        let center = (dim.width / 2, dim.height / 2);
+
+        let (_width_advance, bounds) = font.measure_str(text, Some(&paint));
+        let draw_x = center.0 as f32 - (bounds.left + bounds.width() / 2.0);
+        let draw_y = center.1 as f32 - (bounds.top + bounds.height() / 2.0);
+
+        let centered_point = Point::new(draw_x, draw_y);
+
+        canvas.draw_str(text, centered_point, &font, &paint);
+
+        gr_context.flush_and_submit();
+        gl_surface.swap_buffers(&gl_context).unwrap();
+
+        // Queue a RedrawRequested event.
+        //
+        // You only need to call this if you've determined that you need to redraw in
+        // applications which do not always need to. Applications that redraw continuously
+        // can render here instead.
+        // window.request_redraw();
 
         self.env = Some(Env {
             window,
@@ -200,51 +239,12 @@ impl ApplicationHandler for Browser {
                 println!("The close button was pressed; stopping");
                 event_loop.exit();
             }
+            // TODO: handle resize event
+            // WindowEvent::Resized => {
+            //     println!("WindowEvent::Resized");
+            // }
             WindowEvent::RedrawRequested => {
-                if let Some(env) = &mut self.env {
-                    // Redraw the application.
-                    //
-                    // It's preferable for applications that do not render continuously to render in
-                    // this event rather than in AboutToWait, since rendering in here allows
-                    // the program to gracefully handle redraws requested by the OS.
-
-                    // Draw.
-                    let canvas = env.surface.canvas();
-                    canvas.clear(Color::WHITE);
-
-                    let font_mgr = FontMgr::new();
-                    let typeface = font_mgr
-                        .match_family_style("Helvetica", Default::default())
-                        .expect("Cannot find Helvetica font");
-                    let font = Font::new(typeface, 48.0);
-
-                    let mut paint = Paint::default();
-                    paint.set_color(Color::BLACK);
-                    paint.set_anti_alias(true);
-
-                    let text = "Hello, world!";
-
-                    let dim = canvas.image_info().dimensions();
-                    let center = (dim.width / 2, dim.height / 2);
-
-                    let (_width_advance, bounds) = font.measure_str(text, Some(&paint));
-                    let draw_x = center.0 as f32 - (bounds.left + bounds.width() / 2.0);
-                    let draw_y = center.1 as f32 - (bounds.top + bounds.height() / 2.0);
-
-                    let centered_point = Point::new(draw_x, draw_y);
-
-                    canvas.draw_str(text, centered_point, &font, &paint);
-
-                    env.gr_context.flush_and_submit();
-                    env.gl_surface.swap_buffers(&env.gl_context).unwrap();
-
-                    // Queue a RedrawRequested event.
-                    //
-                    // You only need to call this if you've determined that you need to redraw in
-                    // applications which do not always need to. Applications that redraw continuously
-                    // can render here instead.
-                    env.window.request_redraw();
-                }
+                // println!("WindowEvent::RedrawRequested");
             }
             _ => (),
         }
