@@ -3,7 +3,6 @@ use crate::{browser::Browser, url::URL};
 mod browser;
 mod constant;
 mod layout;
-mod lexer;
 mod parser;
 mod url;
 

@@ -96,10 +96,11 @@ impl HTMLParser {
     }
 
     pub fn parse(&mut self) -> NodePtr {
+        let body = std::mem::take(&mut self.body);
         let mut text = String::new();
         let mut in_tag = false;
 
-        for c in self.body.chars().collect::<Vec<char>>() {
+        for c in body.chars() {
             match c {
                 '<' => {
                     in_tag = true;
@@ -121,6 +122,7 @@ impl HTMLParser {
             self.add_text(text.as_str());
         }
 
+        self.body = body;
         self.finish()
     }
 
@@ -140,15 +142,16 @@ impl HTMLParser {
     }
 
     fn get_attributes(&self, text: &str) -> (String, HashMap<String, String>) {
-        let parts: Vec<&str> = text.split_whitespace().collect();
-        if parts.is_empty() {
-            return (String::new(), HashMap::new());
-        }
+        let mut parts = text.split_whitespace();
 
-        let tag = parts[0].to_lowercase();
+        let tag = match parts.next() {
+            Some(t) => t.to_lowercase(),
+            None => return (String::new(), HashMap::new()),
+        };
+
         let mut attributes = HashMap::new();
 
-        for attr_pair in parts.iter().skip(1) {
+        for attr_pair in parts {
             let mut parts_pair = attr_pair.splitn(2, '=');
             let key = parts_pair.next().unwrap().to_lowercase();
 
@@ -200,23 +203,23 @@ impl HTMLParser {
 
     fn implicit_tags(&mut self, tag: Option<&str>) {
         loop {
-            let open_tags: Vec<&str> = self
-                .unfinished
-                .iter()
-                .filter_map(|node_ptr| {
-                    if let Node::Element(elem) = node_ptr.as_ref() {
-                        Some(elem.tag.as_str())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
             let current_tag = tag.unwrap_or("");
+            let len = self.unfinished.len();
 
-            if open_tags.is_empty() && current_tag != "html" {
+            let is_root_html = self.unfinished.get(0).map_or(false, |n| match n.as_ref() {
+                Node::Element(e) => e.tag == "html",
+                _ => false,
+            });
+
+            let is_head_second = self.unfinished.get(1).map_or(false, |n| match n.as_ref() {
+                Node::Element(e) => e.tag == "head",
+                _ => false,
+            });
+
+            if len == 0 && current_tag != "html" {
                 self.add_tag("html");
-            } else if open_tags == vec!["html"]
+            } else if len == 1
+                && is_root_html
                 && current_tag != "head"
                 && current_tag != "body"
                 && current_tag != "/html"
@@ -226,7 +229,9 @@ impl HTMLParser {
                 } else {
                     self.add_tag("body");
                 }
-            } else if open_tags == vec!["html", "head"]
+            } else if len == 2
+                && is_root_html
+                && is_head_second
                 && current_tag != "/head"
                 && !HEAD_TAGS.contains(&current_tag)
             {
