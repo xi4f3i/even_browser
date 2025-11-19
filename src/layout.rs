@@ -5,12 +5,10 @@ use skia_safe::{
     font_style::{Slant, Weight, Width},
 };
 
-use crate::{
-    constant::{HSTEP, VSTEP, WIDTH},
-    lexer::Token,
-};
+use crate::constant::{HSTEP, VSTEP, WIDTH};
+use crate::parser::{Node, NodePtr};
 
-// (大小, 是否粗体, 是否斜体)
+// (size, weight, slant)
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Copy)]
 struct FontKey(i32, bool, bool);
 
@@ -41,7 +39,7 @@ pub struct Layout {
 }
 
 impl Layout {
-    pub fn new(tokens: Vec<Token>) -> Self {
+    pub fn new(tree: &NodePtr) -> Self {
         let mut layout = Self {
             font_cache: HashMap::new(),
             font_mgr: FontMgr::new(),
@@ -54,13 +52,53 @@ impl Layout {
             line: Vec::new(),
         };
 
-        for token in tokens {
-            layout.process_token(token);
-        }
+        layout.recurse(tree);
 
         layout.flush();
 
         layout
+    }
+
+    fn recurse(&mut self, tree: &NodePtr) {
+        match tree.as_ref() {
+            Node::Text(text_node) => {
+                for word in text_node.text.split_whitespace() {
+                    self.word(word);
+                }
+            }
+            Node::Element(elem) => {
+                self.open_tag(elem.tag.as_str());
+                for child in &elem.children {
+                    self.recurse(child);
+                }
+                self.close_tag(elem.tag.as_str());
+            }
+        }
+    }
+
+    fn close_tag(&mut self, tag: &str) {
+        match tag {
+            "i" => self.style = Slant::Upright,
+            "b" => self.weight = Weight::NORMAL,
+            "small" => self.size = self.size.saturating_add(2),
+            "big" => self.size = self.size.saturating_sub(4),
+            "p" => {
+                self.flush();
+                self.cursor_y += VSTEP;
+            }
+            _ => {}
+        }
+    }
+
+    fn open_tag(&mut self, tag: &str) {
+        match tag {
+            "i" => self.style = Slant::Italic,
+            "b" => self.weight = Weight::BOLD,
+            "small" => self.size = self.size.saturating_sub(2),
+            "big" => self.size = self.size.saturating_add(4),
+            "br" => self.flush(),
+            _ => {}
+        }
     }
 
     fn flush(&mut self) {
@@ -102,32 +140,6 @@ impl Layout {
         self.cursor_y = baseline + 1.25 * max_descent;
 
         self.cursor_x = HSTEP;
-    }
-
-    fn process_token(&mut self, token: Token) {
-        match token {
-            Token::Text(text) => {
-                for word in text.split_whitespace() {
-                    self.word(word);
-                }
-            }
-            Token::Tag(tag) => match tag.as_str() {
-                "i" => self.style = Slant::Italic,
-                "/i" => self.style = Slant::Upright,
-                "b" => self.weight = Weight::BOLD,
-                "/b" => self.weight = Weight::NORMAL,
-                "small" => self.size = self.size.saturating_sub(2),
-                "/small" => self.size = self.size.saturating_add(2),
-                "big" => self.size = self.size.saturating_add(4),
-                "/big" => self.size = self.size.saturating_sub(4),
-                "br" => self.flush(),
-                "/p" => {
-                    self.flush();
-                    self.cursor_y += VSTEP;
-                }
-                _ => {}
-            },
-        }
     }
 
     fn word(&mut self, word: &str) {

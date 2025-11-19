@@ -1,6 +1,6 @@
 use crate::constant::{HEIGHT, SCROLL_STEP, VSTEP, WIDTH};
 use crate::layout::{DisplayItem, Layout};
-use crate::lexer::lex;
+use crate::parser::{HTMLParser, NodePtr};
 use crate::url::URL;
 use gl_rs as gl;
 use gl_rs::types::GLint;
@@ -45,17 +45,27 @@ pub struct Browser {
     env: Option<Env>,
     display_list: Vec<DisplayItem>,
     scroll: f32,
+    nodes: Option<NodePtr>,
 }
 
 impl Browser {
-    pub fn init(&mut self) {
-        self.scroll = 0.0;
+    pub fn new() -> Self {
+        Self {
+            scroll: 0.0,
+            env: None,
+            display_list: vec![],
+            nodes: None,
+        }
     }
 
     pub fn load(&mut self, url: &URL) {
         let body = url.request();
-        let tokens = lex(&body);
-        self.display_list = Layout::new(tokens).display_list;
+        let mut parser = HTMLParser::new(body);
+        let nodes = parser.parse();
+        self.nodes = Some(nodes);
+        if let Some(ref node) = self.nodes {
+            self.display_list = Layout::new(node).display_list;
+        }
     }
 
     pub fn run(&mut self) {
@@ -87,7 +97,7 @@ impl Browser {
                     continue;
                 }
 
-                let point = Point::new(item.x, item.y);
+                let point = Point::new(item.x, item.y - self.scroll);
                 canvas.draw_str(&item.text, point, &item.font, &paint);
             }
 
