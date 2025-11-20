@@ -1,19 +1,12 @@
 use crate::constant::{HEAD_TAGS, SELF_CLOSING_TAGS};
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-pub type NodePtr = Box<Node>;
+pub type NodeRef = Rc<RefCell<Node>>;
 
 #[derive(Debug)]
 pub enum Node {
     Element(Element),
     Text(Text),
-}
-
-pub trait NodeTrait {
-    fn children(&self) -> &Vec<NodePtr>;
-    fn children_mut(&mut self) -> &mut Vec<NodePtr>;
-    fn parent(&self) -> Option<&NodePtr>;
-    fn parent_mut(&mut self) -> Option<&mut NodePtr>;
 }
 
 #[derive(Default, Debug)]
@@ -28,7 +21,7 @@ pub struct Text {
 pub struct Element {
     pub tag: String,
     pub attributes: HashMap<String, String>,
-    pub children: Vec<NodePtr>,
+    pub children: Vec<NodeRef>,
     // Note: Parent is omitted for the same reason as Text
 }
 
@@ -77,14 +70,14 @@ pub fn print_tree(node: &Node, indent: usize) {
     };
 
     for child in children {
-        print_tree(child.as_ref(), indent + 2);
+        print_tree(&*child.borrow(), indent + 2);
     }
 }
 
 #[derive(Debug)]
 pub struct HTMLParser {
     body: String,
-    unfinished: Vec<NodePtr>,
+    unfinished: Vec<NodeRef>,
 }
 
 impl HTMLParser {
@@ -95,7 +88,7 @@ impl HTMLParser {
         }
     }
 
-    pub fn parse(&mut self) -> NodePtr {
+    pub fn parse(&mut self) -> NodeRef {
         let body = std::mem::take(&mut self.body);
         let mut text = String::new();
         let mut in_tag = false;
@@ -133,11 +126,16 @@ impl HTMLParser {
 
         self.implicit_tags(None);
 
-        if let Some(Node::Element(parent_elem)) = self.unfinished.last_mut().map(|n| n.as_mut()) {
+        if let Some(Node::Element(parent_elem)) = self
+            .unfinished
+            .last()
+            .map(|n| n.borrow_mut())
+            .as_deref_mut()
+        {
             let node = Node::Text(Text {
                 text: text.trim().to_string(),
             });
-            parent_elem.children.push(Box::new(node));
+            parent_elem.children.push(Rc::new(RefCell::new(node)));
         }
     }
 
@@ -183,21 +181,28 @@ impl HTMLParser {
             }
 
             if let Some(node) = self.unfinished.pop() {
-                if let Some(Node::Element(parent_elem)) =
-                    self.unfinished.last_mut().map(|n| n.as_mut())
+                if let Some(Node::Element(parent_elem)) = self
+                    .unfinished
+                    .last()
+                    .map(|n| n.borrow_mut())
+                    .as_deref_mut()
                 {
                     parent_elem.children.push(node);
                 }
             }
         } else if SELF_CLOSING_TAGS.contains(&tag.as_str()) {
-            if let Some(Node::Element(parent_elem)) = self.unfinished.last_mut().map(|n| n.as_mut())
+            if let Some(Node::Element(parent_elem)) = self
+                .unfinished
+                .last()
+                .map(|n| n.borrow_mut())
+                .as_deref_mut()
             {
                 let node = Node::Element(Element::new(tag, attributes));
-                parent_elem.children.push(Box::new(node));
+                parent_elem.children.push(Rc::new(RefCell::new(node)));
             }
         } else {
             let node = Node::Element(Element::new(tag, attributes));
-            self.unfinished.push(Box::new(node));
+            self.unfinished.push(Rc::new(RefCell::new(node)));
         }
     }
 
@@ -206,15 +211,21 @@ impl HTMLParser {
             let current_tag = tag.unwrap_or("");
             let len = self.unfinished.len();
 
-            let is_root_html = self.unfinished.get(0).map_or(false, |n| match n.as_ref() {
-                Node::Element(e) => e.tag == "html",
-                _ => false,
-            });
+            let is_root_html = self
+                .unfinished
+                .get(0)
+                .map_or(false, |n| match &*n.borrow() {
+                    Node::Element(e) => e.tag == "html",
+                    _ => false,
+                });
 
-            let is_head_second = self.unfinished.get(1).map_or(false, |n| match n.as_ref() {
-                Node::Element(e) => e.tag == "head",
-                _ => false,
-            });
+            let is_head_second = self
+                .unfinished
+                .get(1)
+                .map_or(false, |n| match &*n.borrow() {
+                    Node::Element(e) => e.tag == "head",
+                    _ => false,
+                });
 
             if len == 0 && current_tag != "html" {
                 self.add_tag("html");
@@ -242,14 +253,18 @@ impl HTMLParser {
         }
     }
 
-    pub fn finish(&mut self) -> NodePtr {
+    pub fn finish(&mut self) -> NodeRef {
         if self.unfinished.is_empty() {
             self.implicit_tags(None);
         }
 
         while self.unfinished.len() > 1 {
             let node = self.unfinished.pop().unwrap();
-            if let Some(Node::Element(parent_elem)) = self.unfinished.last_mut().map(|n| n.as_mut())
+            if let Some(Node::Element(parent_elem)) = self
+                .unfinished
+                .last()
+                .map(|n| n.borrow_mut())
+                .as_deref_mut()
             {
                 parent_elem.children.push(node);
             }

@@ -6,7 +6,7 @@ use skia_safe::{
 };
 
 use crate::constant::{HSTEP, VSTEP, WIDTH};
-use crate::parser::{Node, NodePtr};
+use crate::parser::Node;
 
 // (size, weight, slant)
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Copy)]
@@ -39,7 +39,7 @@ pub struct Layout {
 }
 
 impl Layout {
-    pub fn new(tree: &NodePtr) -> Self {
+    pub fn new(tree: &Node) -> Self {
         let mut layout = Self {
             font_cache: HashMap::new(),
             font_mgr: FontMgr::new(),
@@ -59,8 +59,8 @@ impl Layout {
         layout
     }
 
-    fn recurse(&mut self, tree: &NodePtr) {
-        match tree.as_ref() {
+    fn recurse(&mut self, tree: &Node) {
+        match tree {
             Node::Text(text_node) => {
                 for word in text_node.text.split_whitespace() {
                     self.word(word);
@@ -68,8 +68,8 @@ impl Layout {
             }
             Node::Element(elem) => {
                 self.open_tag(elem.tag.as_str());
-                for child in &elem.children {
-                    self.recurse(child);
+                for child in elem.children.iter() {
+                    self.recurse(&*child.borrow());
                 }
                 self.close_tag(elem.tag.as_str());
             }
@@ -146,15 +146,14 @@ impl Layout {
         let font = self.get_font(self.size, self.weight, self.style);
 
         let w = font.measure_str(word, None).1.width();
+        let space_w = font.measure_str(" ", None).1.width();
 
         if self.cursor_x + w >= WIDTH - HSTEP {
             self.flush();
         }
 
-        self.line
-            .push((self.cursor_x, word.to_string(), font.clone()));
+        self.line.push((self.cursor_x, word.to_string(), font));
 
-        let space_w = font.measure_str(" ", None).1.width();
         self.cursor_x += w + space_w;
     }
 

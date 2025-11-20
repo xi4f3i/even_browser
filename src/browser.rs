@@ -1,6 +1,6 @@
 use crate::constant::{HEIGHT, SCROLL_STEP, VSTEP, WIDTH};
 use crate::layout::{DisplayItem, Layout};
-use crate::parser::{HTMLParser, NodePtr};
+use crate::parser::{HTMLParser, NodeRef};
 use crate::url::URL;
 use gl_rs as gl;
 use gl_rs::types::GLint;
@@ -45,7 +45,7 @@ pub struct Browser {
     env: Option<Env>,
     display_list: Vec<DisplayItem>,
     scroll: f32,
-    nodes: Option<NodePtr>,
+    nodes: Option<NodeRef>,
 }
 
 impl Browser {
@@ -63,8 +63,8 @@ impl Browser {
         let mut parser = HTMLParser::new(body);
         let nodes = parser.parse();
         self.nodes = Some(nodes);
-        if let Some(ref node) = self.nodes {
-            self.display_list = Layout::new(node).display_list;
+        if let Some(node) = &self.nodes {
+            self.display_list = Layout::new(&*node.borrow()).display_list;
         }
     }
 
