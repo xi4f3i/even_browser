@@ -88,7 +88,7 @@ impl HTMLParser {
         }
     }
 
-    pub fn parse(&mut self) -> NodeRef {
+    pub fn parse(&mut self) -> Option<NodeRef> {
         let body = std::mem::take(&mut self.body);
         let mut text = String::new();
         let mut in_tag = false;
@@ -253,7 +253,7 @@ impl HTMLParser {
         }
     }
 
-    pub fn finish(&mut self) -> NodeRef {
+    pub fn finish(&mut self) -> Option<NodeRef> {
         if self.unfinished.is_empty() {
             self.implicit_tags(None);
         }
@@ -270,6 +270,6 @@ impl HTMLParser {
             }
         }
 
-        self.unfinished.pop().unwrap()
+        self.unfinished.pop()
     }
 }

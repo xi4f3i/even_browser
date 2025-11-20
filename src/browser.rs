@@ -61,8 +61,7 @@ impl Browser {
     pub fn load(&mut self, url: &URL) {
         let body = url.request();
         let mut parser = HTMLParser::new(body);
-        let nodes = parser.parse();
-        self.nodes = Some(nodes);
+        self.nodes = parser.parse();
         if let Some(node) = &self.nodes {
             self.display_list = Layout::new(&*node.borrow()).display_list;
         }
