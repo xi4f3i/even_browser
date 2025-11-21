@@ -1,5 +1,5 @@
-use crate::constant::{HEIGHT, SCROLL_STEP, VSTEP, WIDTH};
-use crate::layout::{DisplayItem, Layout};
+use crate::constant::{HEIGHT, SCROLL_STEP, WIDTH};
+use crate::layout::{DocumentLayout, DrawCommandRef, Layout, LayoutRef};
 use crate::parser::{HTMLParser, NodeRef};
 use crate::url::URL;
 use gl_rs as gl;
@@ -17,9 +17,11 @@ use skia_safe::gpu::gl::Format;
 use skia_safe::gpu::gl::FramebufferInfo;
 use skia_safe::gpu::gl::Interface;
 use skia_safe::gpu::{DirectContext, SurfaceOrigin, backend_render_targets};
-use skia_safe::{Color, ColorType, Paint, Point, Surface, gpu};
+use skia_safe::{Color, ColorType, Paint, Surface, gpu};
+use std::cell::RefCell;
 use std::ffi::CString;
 use std::num::NonZeroU32;
+use std::rc::Rc;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::WindowEvent;
@@ -40,12 +42,22 @@ struct Env {
     window: Window,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default)]
 pub struct Browser {
     env: Option<Env>,
-    display_list: Vec<DisplayItem>,
+    display_list: Vec<DrawCommandRef>,
     scroll: f32,
     nodes: Option<NodeRef>,
+    document: Option<LayoutRef>,
+}
+
+fn paint_tree(layout_ref: LayoutRef, display_list: &mut Vec<DrawCommandRef>) {
+    let layout = &*layout_ref.borrow();
+    display_list.append(&mut layout.paint());
+
+    for child_ref in layout.get_children() {
+        paint_tree(child_ref.clone(), display_list);
+    }
 }
 
 impl Browser {
@@ -55,6 +67,7 @@ impl Browser {
             env: None,
             display_list: vec![],
             nodes: None,
+            document: None,
         }
     }
 
@@ -63,7 +76,13 @@ impl Browser {
         let mut parser = HTMLParser::new(body);
         self.nodes = parser.parse();
         if let Some(node) = &self.nodes {
-            self.display_list = Layout::new(&*node.borrow()).display_list;
+            // self.display_list = LayoutBackup::new(&*node.borrow()).display_list;
+            let document = DocumentLayout::new(node.clone());
+            let document_ref = Rc::new(RefCell::new(document));
+            document_ref.borrow_mut().layout(document_ref.clone());
+            self.document = Some(document_ref.clone());
+            self.display_list.clear();
+            paint_tree(document_ref, &mut self.display_list);
         }
     }
 
@@ -87,17 +106,15 @@ impl Browser {
             paint.set_color(Color::BLACK);
             paint.set_anti_alias(true);
 
-            for item in &self.display_list {
-                if item.y > self.scroll + HEIGHT {
+            for cmd in self.display_list.iter() {
+                if cmd.get_top() > self.scroll + HEIGHT {
+                    continue;
+                }
+                if cmd.get_bottom() < self.scroll {
                     continue;
                 }
 
-                if item.y + VSTEP < self.scroll {
-                    continue;
-                }
-
-                let point = Point::new(item.x, item.y - self.scroll);
-                canvas.draw_str(&item.text, point, &item.font, &paint);
+                cmd.execute(self.scroll, canvas, &paint);
             }
 
             canvas.restore();

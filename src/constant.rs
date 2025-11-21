@@ -12,3 +12,12 @@ pub const SELF_CLOSING_TAGS: [&str; 14] = [
 pub const HEAD_TAGS: [&str; 9] = [
     "base", "basefont", "bgsound", "noscript", "link", "meta", "title", "style", "script",
 ];
+
+pub const BLOCK_ELEMENTS: [&str; 37] = [
+    "html", "body", "article", "section", "nav", "aside",
+    "h1", "h2", "h3", "h4", "h5", "h6", "hgroup", "header",
+    "footer", "address", "p", "hr", "pre", "blockquote",
+    "ol", "ul", "menu", "li", "dl", "dt", "dd", "figure",
+    "figcaption", "main", "div", "table", "form", "fieldset",
+    "legend", "details", "summary"
+];
