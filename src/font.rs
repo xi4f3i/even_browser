@@ -30,7 +30,11 @@ pub fn get_font(size: i32, weight: Weight, slant: Slant) -> Font {
 
         let typeface = font_mgr
             .match_family_style("PingFang SC", font_style)
-            .expect("Cannot find PingFang SC font");
+            .unwrap_or(
+                font_mgr
+                    .match_family_style("Microsoft YaHei UI", font_style)
+                    .expect("Cannot find PingFang SC font"),
+            );
 
         let font = Font::new(typeface, size as f32);
 
