@@ -2,6 +2,7 @@ use crate::{browser::Browser, url::URL};
 
 mod browser;
 mod constant;
+mod font;
 mod layout;
 mod parser;
 mod url;

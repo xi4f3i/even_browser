@@ -1,6 +1,7 @@
 use crate::constant::{HEIGHT, SCROLL_STEP, WIDTH};
-use crate::layout::{DocumentLayout, DrawCommandRef, Layout, LayoutRef};
-use crate::parser::{HTMLParser, NodeRef};
+use crate::layout::LayoutNode;
+use crate::parser::html_node::HTMLNode;
+use crate::parser::html_parser::HTMLParser;
 use crate::url::URL;
 use gl_rs as gl;
 use gl_rs::types::GLint;
@@ -45,19 +46,9 @@ struct Env {
 #[derive(Default)]
 pub struct Browser {
     env: Option<Env>,
-    display_list: Vec<DrawCommandRef>,
     scroll: f32,
-    nodes: Option<NodeRef>,
-    document: Option<LayoutRef>,
-}
-
-fn paint_tree(layout_ref: LayoutRef, display_list: &mut Vec<DrawCommandRef>) {
-    let layout = &*layout_ref.borrow();
-    display_list.append(&mut layout.paint());
-
-    for child_ref in layout.get_children() {
-        paint_tree(child_ref.clone(), display_list);
-    }
+    nodes: Option<Rc<RefCell<HTMLNode>>>,
+    document: Option<Rc<RefCell<LayoutNode>>>,
 }
 
 impl Browser {
@@ -65,7 +56,6 @@ impl Browser {
         Self {
             scroll: 0.0,
             env: None,
-            display_list: vec![],
             nodes: None,
             document: None,
         }
@@ -74,15 +64,13 @@ impl Browser {
     pub fn load(&mut self, url: &URL) {
         let body = url.request();
         let mut parser = HTMLParser::new(body);
-        self.nodes = parser.parse();
+        self.nodes = Some(parser.parse());
         if let Some(node) = &self.nodes {
-            // self.display_list = LayoutBackup::new(&*node.borrow()).display_list;
-            let document = DocumentLayout::new(node.clone());
-            let document_ref = Rc::new(RefCell::new(document));
-            document_ref.borrow_mut().layout(document_ref.clone());
-            self.document = Some(document_ref.clone());
-            self.display_list.clear();
-            paint_tree(document_ref, &mut self.display_list);
+            // node.borrow().print_tree(0);
+            let document = LayoutNode::new_document(node.clone());
+            self.document = Some(document.clone());
+            LayoutNode::layout(document);
+            println!("document layout done");
         }
     }
 
@@ -94,33 +82,33 @@ impl Browser {
 
     fn draw(&mut self) {
         if let Some(env) = &mut self.env {
-            let canvas = env.surface.canvas();
-            canvas.clear(Color::WHITE);
+            // let canvas = env.surface.canvas();
+            // canvas.clear(Color::WHITE);
 
-            canvas.save();
+            // canvas.save();
 
-            let scale_factor = env.window.scale_factor() as f32;
-            canvas.scale((scale_factor, scale_factor));
+            // let scale_factor = env.window.scale_factor() as f32;
+            // canvas.scale((scale_factor, scale_factor));
 
-            let mut paint = Paint::default();
-            paint.set_color(Color::BLACK);
-            paint.set_anti_alias(true);
+            // let mut paint = Paint::default();
+            // paint.set_color(Color::BLACK);
+            // paint.set_anti_alias(true);
 
-            for cmd in self.display_list.iter() {
-                if cmd.get_top() > self.scroll + HEIGHT {
-                    continue;
-                }
-                if cmd.get_bottom() < self.scroll {
-                    continue;
-                }
+            // for cmd in self.display_list.iter() {
+            //     if cmd.get_top() > self.scroll + HEIGHT {
+            //         continue;
+            //     }
+            //     if cmd.get_bottom() < self.scroll {
+            //         continue;
+            //     }
 
-                cmd.execute(self.scroll, canvas, &paint);
-            }
+            //     cmd.execute(self.scroll, canvas, &paint);
+            // }
 
-            canvas.restore();
+            // canvas.restore();
 
-            env.gr_context.flush_and_submit();
-            env.gl_surface.swap_buffers(&env.gl_context).unwrap();
+            // env.gr_context.flush_and_submit();
+            // env.gl_surface.swap_buffers(&env.gl_context).unwrap();
         }
     }
 }
