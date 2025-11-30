@@ -19,8 +19,8 @@ use raw_window_handle::HasWindowHandle;
 use skia_safe::gpu::gl::Format;
 use skia_safe::gpu::gl::FramebufferInfo;
 use skia_safe::gpu::gl::Interface;
-use skia_safe::gpu::{backend_render_targets, DirectContext, SurfaceOrigin};
-use skia_safe::{gpu, Color, ColorType, Paint, Surface};
+use skia_safe::gpu::{DirectContext, SurfaceOrigin, backend_render_targets};
+use skia_safe::{Color, ColorType, Paint, Surface, gpu};
 use std::ffi::CString;
 use std::num::NonZeroU32;
 use winit::application::ApplicationHandler;
@@ -64,10 +64,21 @@ impl Browser {
     }
 
     pub fn load(&mut self, url: &URL) {
-        self.nodes = HTMLParser::new(url.request()).parse();
-
+        // self.nodes = HTMLParser::new(url.request()).parse();
+        self.nodes = HTMLParser::new(String::from("<html>
+    <head></head>
+    <body>
+        <div class=\"sourceCode\" id=\"cb2\" data-replace=\"Layout/DocumentLayout\" data-dropline=\"display_list\"><pre class=\"sourceCode python\"><code class=\"sourceCode python\"><span id=\"cb2-1\"><a href=\"#cb2-1\" aria-hidden=\"true\" tabindex=\"-1\"></a><span class=\"kw\">class</span> Browser:</span>
+<span id=\"cb2-2\"><a href=\"#cb2-2\" aria-hidden=\"true\" tabindex=\"-1\"></a>    <span class=\"kw\">def</span> load(<span class=\"va\">self</span>, url):</span>
+<span id=\"cb2-3\"><a href=\"#cb2-3\" aria-hidden=\"true\" tabindex=\"-1\"></a>        <span class=\"co\"># ...</span></span>
+<span id=\"cb2-4\"><a href=\"#cb2-4\" aria-hidden=\"true\" tabindex=\"-1\"></a>        <span class=\"va\">self</span>.document <span class=\"op\">=</span> Layout(<span class=\"va\">self</span>.nodes)</span>
+<span id=\"cb2-5\"><a href=\"#cb2-5\" aria-hidden=\"true\" tabindex=\"-1\"></a>        <span class=\"va\">self</span>.document.layout()</span>
+<span id=\"cb2-6\"><a href=\"#cb2-6\" aria-hidden=\"true\" tabindex=\"-1\"></a>        <span class=\"va\">self</span>.display_list <span class=\"op\">=</span> <span class=\"va\">self</span>.document.display_list</span>
+<span id=\"cb2-7\"><a href=\"#cb2-7\" aria-hidden=\"true\" tabindex=\"-1\"></a>        <span class=\"co\">#...</span></span></code></pre></div>
+    </body>
+</html>")).parse();
         if let Some(node) = &self.nodes {
-            node.borrow().print_tree(0);
+            // node.borrow().print_tree(0);
 
             let doc_rc = DocumentLayout::new(node.clone());
             self.document = Some(doc_rc.clone());
@@ -79,6 +90,10 @@ impl Browser {
                 self.display_list.clear();
                 self.paint_tree(block.clone());
             }
+        }
+
+        for item in &self.display_list {
+            println!("{}", item);
         }
 
         self.draw();
