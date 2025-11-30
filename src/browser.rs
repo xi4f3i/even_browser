@@ -1,8 +1,10 @@
 use crate::constant::{HEIGHT, SCROLL_STEP, WIDTH};
-use crate::layout::LayoutNode;
-use crate::parser::html_node::HTMLNode;
+use crate::layout::block_layout::BlockLayoutRef;
+use crate::layout::document_layout::{DocumentLayout, DocumentLayoutRef};
+use crate::layout::draw_command::DrawCommand;
+use crate::net::url::URL;
+use crate::parser::html_node::HTMLNodeRef;
 use crate::parser::html_parser::HTMLParser;
-use crate::url::URL;
 use gl_rs as gl;
 use gl_rs::types::GLint;
 use glutin::config::{ConfigTemplateBuilder, GlConfig};
@@ -17,12 +19,10 @@ use raw_window_handle::HasWindowHandle;
 use skia_safe::gpu::gl::Format;
 use skia_safe::gpu::gl::FramebufferInfo;
 use skia_safe::gpu::gl::Interface;
-use skia_safe::gpu::{DirectContext, SurfaceOrigin, backend_render_targets};
-use skia_safe::{Color, ColorType, Paint, Surface, gpu};
-use std::cell::RefCell;
+use skia_safe::gpu::{backend_render_targets, DirectContext, SurfaceOrigin};
+use skia_safe::{gpu, Color, ColorType, Paint, Surface};
 use std::ffi::CString;
 use std::num::NonZeroU32;
-use std::rc::Rc;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::WindowEvent;
@@ -47,8 +47,9 @@ struct Env {
 pub struct Browser {
     env: Option<Env>,
     scroll: f32,
-    nodes: Option<Rc<RefCell<HTMLNode>>>,
-    document: Option<Rc<RefCell<LayoutNode>>>,
+    nodes: Option<HTMLNodeRef>,
+    document: Option<DocumentLayoutRef>,
+    display_list: Vec<DrawCommand>,
 }
 
 impl Browser {
@@ -58,19 +59,37 @@ impl Browser {
             env: None,
             nodes: None,
             document: None,
+            display_list: Vec::new(),
         }
     }
 
     pub fn load(&mut self, url: &URL) {
-        let body = url.request();
-        let mut parser = HTMLParser::new(body);
-        self.nodes = Some(parser.parse());
+        self.nodes = HTMLParser::new(url.request()).parse();
+
         if let Some(node) = &self.nodes {
-            // node.borrow().print_tree(0);
-            let document = LayoutNode::new_document(node.clone());
-            self.document = Some(document.clone());
-            LayoutNode::layout(document);
-            println!("document layout done");
+            node.borrow().print_tree(0);
+
+            let doc_rc = DocumentLayout::new(node.clone());
+            self.document = Some(doc_rc.clone());
+
+            doc_rc.borrow_mut().layout();
+            doc_rc.borrow().print_tree(0);
+
+            if let Some(block) = &doc_rc.borrow().child {
+                self.display_list.clear();
+                self.paint_tree(block.clone());
+            }
+        }
+
+        self.draw();
+    }
+
+    fn paint_tree(&mut self, block_rc: BlockLayoutRef) {
+        let block = &*block_rc.borrow();
+        self.display_list.append(&mut block.paint());
+
+        for child in &block.children {
+            self.paint_tree(child.clone());
         }
     }
 
@@ -82,33 +101,35 @@ impl Browser {
 
     fn draw(&mut self) {
         if let Some(env) = &mut self.env {
-            // let canvas = env.surface.canvas();
-            // canvas.clear(Color::WHITE);
+            let canvas = env.surface.canvas();
+            canvas.clear(Color::WHITE);
 
-            // canvas.save();
+            canvas.save();
 
-            // let scale_factor = env.window.scale_factor() as f32;
-            // canvas.scale((scale_factor, scale_factor));
+            let scale_factor = env.window.scale_factor() as f32;
+            canvas.scale((scale_factor, scale_factor));
 
-            // let mut paint = Paint::default();
-            // paint.set_color(Color::BLACK);
-            // paint.set_anti_alias(true);
+            let mut paint = Paint::default();
+            paint.set_anti_alias(true);
 
-            // for cmd in self.display_list.iter() {
-            //     if cmd.get_top() > self.scroll + HEIGHT {
-            //         continue;
-            //     }
-            //     if cmd.get_bottom() < self.scroll {
-            //         continue;
-            //     }
+            for cmd in self.display_list.iter() {
+                if cmd.get_top() > self.scroll + HEIGHT {
+                    continue;
+                }
+                if cmd.get_bottom() < self.scroll {
+                    continue;
+                }
 
-            //     cmd.execute(self.scroll, canvas, &paint);
-            // }
+                // reset paint's color
+                paint.set_color(Color::BLACK);
 
-            // canvas.restore();
+                cmd.execute(self.scroll, canvas, &mut paint);
+            }
 
-            // env.gr_context.flush_and_submit();
-            // env.gl_surface.swap_buffers(&env.gl_context).unwrap();
+            canvas.restore();
+
+            env.gr_context.flush_and_submit();
+            env.gl_surface.swap_buffers(&env.gl_context).unwrap();
         }
     }
 }

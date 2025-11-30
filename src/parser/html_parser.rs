@@ -21,7 +21,7 @@ impl HTMLParser {
         }
     }
 
-    pub fn parse(&mut self) -> Rc<RefCell<HTMLNode>> {
+    pub fn parse(&mut self) -> Option<Rc<RefCell<HTMLNode>>> {
         let mut in_tag = false;
         let mut left: usize = 0;
         let mut right: usize = 0;
@@ -30,9 +30,7 @@ impl HTMLParser {
         let len = chars.len();
 
         while right < len {
-            let c = chars[right];
-
-            match c {
+            match chars[right] {
                 '<' => {
                     in_tag = true;
 
@@ -68,7 +66,7 @@ impl HTMLParser {
         self.finish()
     }
 
-    fn finish(&mut self) -> Rc<RefCell<HTMLNode>> {
+    fn finish(&mut self) -> Option<Rc<RefCell<HTMLNode>>> {
         if self.unfinished.is_empty() {
             self.implicit_tags(None);
         }
@@ -85,9 +83,7 @@ impl HTMLParser {
             parent.borrow_mut().children.push(node);
         }
 
-        self.unfinished
-            .pop()
-            .expect("Finish: unfinished pop root node failed")
+        self.unfinished.pop()
     }
 
     fn add_text(&mut self, text: String) {
@@ -97,11 +93,19 @@ impl HTMLParser {
 
         self.implicit_tags(None);
 
-        let parent_rc = self.unfinished.last().expect("Should have parent").clone();
+        let node = HTMLNode::new_text(self.get_parent_weak(), text);
 
-        let node = HTMLNode::new_text(Some(Rc::downgrade(&parent_rc)), text);
+        if let Some(parent_rc) = self.unfinished.last() {
+            parent_rc.borrow_mut().children.push(node);
+        }
+    }
 
-        parent_rc.borrow_mut().children.push(node);
+    fn get_parent_weak(&self) -> Option<Weak<RefCell<HTMLNode>>> {
+        if let Some(parent_rc) = self.unfinished.last() {
+            Some(Rc::downgrade(&parent_rc))
+        } else {
+            None
+        }
     }
 
     fn add_tag(&mut self, tag_text: &str) {
@@ -128,28 +132,19 @@ impl HTMLParser {
                 .expect("Add tag: unfinished last failed");
             parent.borrow_mut().children.push(node);
         } else if SELF_CLOSING_TAGS.contains(&tag.as_str()) {
-            let parent_weak: Option<Weak<RefCell<HTMLNode>>> =
-                if let Some(parent_rc) = self.unfinished.last() {
-                    Some(Rc::downgrade(&parent_rc.clone()))
-                } else {
-                    None
-                };
+            attributes.remove("/"); // remove slash attribute of the self-closing tag
 
-            attributes.remove("/");
-
-            let node = HTMLNode::new_element(parent_weak, tag, attributes);
+            let node = HTMLNode::new_element(self.get_parent_weak(), tag, attributes, true);
             if let Some(parent_rc) = self.unfinished.last() {
                 parent_rc.borrow_mut().children.push(node);
             }
         } else {
-            let parent_weak = if let Some(parent) = self.unfinished.last() {
-                Some(Rc::downgrade(&parent.clone()))
-            } else {
-                None
-            };
-
-            self.unfinished
-                .push(HTMLNode::new_element(parent_weak, tag, attributes));
+            self.unfinished.push(HTMLNode::new_element(
+                self.get_parent_weak(),
+                tag,
+                attributes,
+                false,
+            ));
         }
     }
 

@@ -1,11 +1,11 @@
-use crate::{browser::Browser, url::URL};
+use net::url::URL;
+use crate::browser::Browser;
 
 mod browser;
 mod constant;
-mod font;
 mod layout;
 mod parser;
-mod url;
+mod net;
 
 fn main() {
     let url_str = "https://browser.engineering/examples/xiyouji.html";
