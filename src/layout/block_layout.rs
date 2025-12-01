@@ -1,4 +1,6 @@
-use crate::constant::{DEFAULT_FONT_SIZE, HSTEP, VSTEP, WIDTH};
+use crate::constant::{
+    DEFAULT_BROWSER_PADDING, DEFAULT_FONT_SIZE, DEFAULT_X, DEFAULT_Y, VSTEP, WIDTH,
+};
 use crate::layout::draw_command::DrawCommand;
 use crate::layout::font_manager::FontManagerRef;
 use crate::layout::layout_mode::LayoutMode;
@@ -13,6 +15,7 @@ use std::rc::{Rc, Weak};
 pub struct DisplayItem {
     pub x: f32,
     pub y: f32,
+    pub baseline: f32,
     pub text: String,
     pub font: Font,
 }
@@ -72,6 +75,7 @@ impl BlockLayout {
         }))
     }
 
+    // return (x, y, width)
     fn calc_pos_and_width(&self) -> (f32, f32, f32) {
         if let Some(parent_weak) = &self.parent
             && let Some(parent_rc) = parent_weak.upgrade()
@@ -91,7 +95,7 @@ impl BlockLayout {
             (x, y, width)
         } else {
             // default value
-            (HSTEP, VSTEP, WIDTH - 2.0 * HSTEP)
+            (DEFAULT_X, DEFAULT_Y, WIDTH - 2.0 * DEFAULT_BROWSER_PADDING)
         }
     }
 
@@ -136,14 +140,16 @@ impl BlockLayout {
             max_spacing = max_spacing.max(font.spacing());
         }
 
-        let baseline = self.cursor_y + max_ascent;
+        let baseline = self.y + self.cursor_y + max_ascent;
 
         for (real_x, word, font) in self.line.drain(..) {
             let x = self.x + real_x;
-            let y = self.y + baseline + font.metrics().1.ascent;
+            let ascent = -font.metrics().1.ascent;
+            let y = baseline - ascent;
             self.display_list.push(DisplayItem {
                 x,
                 y,
+                baseline,
                 text: word.to_string(),
                 font,
             })
@@ -274,6 +280,7 @@ impl BlockLayout {
                 cmds.push(DrawCommand::text(
                     item.x,
                     item.y,
+                    item.baseline,
                     item.text.to_string(),
                     item.font.clone(),
                 ));

@@ -19,8 +19,8 @@ use raw_window_handle::HasWindowHandle;
 use skia_safe::gpu::gl::Format;
 use skia_safe::gpu::gl::FramebufferInfo;
 use skia_safe::gpu::gl::Interface;
-use skia_safe::gpu::{backend_render_targets, DirectContext, SurfaceOrigin};
-use skia_safe::{gpu, Color, ColorType, Paint, Surface};
+use skia_safe::gpu::{DirectContext, SurfaceOrigin, backend_render_targets};
+use skia_safe::{Color, ColorType, Paint, Surface, gpu};
 use std::ffi::CString;
 use std::num::NonZeroU32;
 use winit::application::ApplicationHandler;
@@ -81,7 +81,15 @@ impl Browser {
             }
         }
 
+        self.print_display_list();
+
         self.draw();
+    }
+
+    fn print_display_list(&self) {
+        for item in &self.display_list {
+            println!("{}", item);
+        }
     }
 
     fn paint_tree(&mut self, block_rc: BlockLayoutRef) {

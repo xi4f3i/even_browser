@@ -4,6 +4,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+const FAMILY_NAMES: [&str; 3] = ["PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC"];
+
 pub type FontManagerRef = Rc<RefCell<FontManager>>;
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Copy)]
@@ -41,14 +43,15 @@ impl FontManager {
 
         let font_style = FontStyle::new(weight, Width::NORMAL, slant);
 
-        let typeface = self
-            .font_mgr
-            .match_family_style("PingFang SC", font_style)
-            .unwrap_or(
-                self.font_mgr
-                    .match_family_style("Microsoft YaHei UI", font_style)
-                    .expect("Cannot find PingFang SC and Microsoft YaHei UI font"),
-            );
+        let mut typeface = None;
+        for name in FAMILY_NAMES {
+            if let Some(tf) = self.font_mgr.match_family_style(name, font_style) {
+                typeface = Some(tf);
+                break;
+            }
+        }
+
+        let typeface = typeface.expect("Error: No fonts found at all.");
 
         let font = Font::new(typeface, size as f32);
 

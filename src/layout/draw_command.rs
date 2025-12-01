@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter, Result};
 pub struct DrawText {
     top: f32,
     left: f32,
+    baseline: f32,
     bottom: f32,
     text: String,
     font: Font,
@@ -12,7 +13,7 @@ pub struct DrawText {
 
 impl DrawText {
     pub fn execute(&self, scroll: f32, canvas: &Canvas, paint: &mut Paint) {
-        let point = Point::new(self.left, self.top - scroll);
+        let point = Point::new(self.left, self.baseline - scroll);
         canvas.draw_str(&self.text, point, &self.font, paint);
     }
 }
@@ -21,12 +22,13 @@ impl Display for DrawText {
     fn fmt(&self, f: &mut Formatter) -> Result {
         write!(
             f,
-            "DrawText(top={} left={} bottom={} text={} font={})",
+            "DrawText(top={} left={} baseline={} bottom={} font={} text={})",
             self.top,
             self.left,
+            self.baseline,
             self.bottom,
+            self.font.typeface().family_name(),
             self.text,
-            self.font.typeface().family_name()
         )
     }
 }
@@ -71,12 +73,13 @@ pub enum DrawCommand {
 }
 
 impl DrawCommand {
-    pub fn text(x1: f32, y1: f32, text: String, font: Font) -> Self {
-        let bottom = y1 - font.metrics().1.ascent - font.metrics().1.descent;
+    pub fn text(x1: f32, y1: f32, baseline: f32, text: String, font: Font) -> Self {
+        let bottom = y1 + font.spacing();
 
         Self::Text(DrawText {
             top: y1,
             left: x1,
+            baseline,
             bottom,
             text,
             font,

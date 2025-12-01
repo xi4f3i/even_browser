@@ -209,6 +209,7 @@ impl HTMLParser {
                 .expect("Get attributes: parts pair next failed")
                 .to_lowercase();
 
+            // Simple implementation, to be improved
             if let Some(mut value) = parts_pair.next() {
                 if value.len() > 2 && (value.starts_with('\'') || value.starts_with('"')) {
                     value = &value[1..value.len() - 1];
