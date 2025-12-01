@@ -5,8 +5,9 @@ use crate::layout::draw_command::DrawCommand;
 use crate::layout::font_manager::FontManagerRef;
 use crate::layout::layout_mode::LayoutMode;
 use crate::parser::html_node::{HTMLNode, HTMLNodeData, HTMLNodeRef};
+use crate::parser::style::STYLE_KEY_BACKGROUND_COLOR;
 use skia_safe::font_style::{Slant, Weight};
-use skia_safe::{Color, Font};
+use skia_safe::Font;
 use std::cell::RefCell;
 use std::fmt::{Display, Formatter, Result};
 use std::rc::{Rc, Weak};
@@ -266,14 +267,20 @@ impl BlockLayout {
     pub fn paint(&self) -> Vec<DrawCommand> {
         let mut cmds = Vec::new();
 
-        let node = &*self.node.borrow();
-        if let HTMLNodeData::Element(e) = &node.data
-            && e.tag == "pre"
-        {
+        if let Some(background_color) = self.node.borrow().style.get(STYLE_KEY_BACKGROUND_COLOR) {
             let x2 = self.x + self.width;
             let y2 = self.y + self.height;
-            cmds.push(DrawCommand::rect(self.x, self.y, x2, y2, Color::GRAY));
+            cmds.push(DrawCommand::rect(self.x, self.y, x2, y2, background_color));
         }
+
+        // let node = &*self.node.borrow();
+        // if let HTMLNodeData::Element(e) = &node.data
+        //     && e.tag == "pre"
+        // {
+        //     let x2 = self.x + self.width;
+        //     let y2 = self.y + self.height;
+        //     cmds.push(DrawCommand::rect(self.x, self.y, x2, y2, Color::GRAY));
+        // }
 
         if let LayoutMode::Inline = self.mode {
             for item in &self.display_list {

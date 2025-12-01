@@ -1,14 +1,14 @@
-use net::url::URL;
 use crate::browser::Browser;
+use net::url::URL;
 
 mod browser;
 mod constant;
 mod layout;
-mod parser;
 mod net;
+mod parser;
 
 fn main() {
-    let url_str = "https://browser.engineering/examples/xiyouji.html";
+    let url_str = "https://browser.engineering/styles.html";
     let url = URL::new(url_str);
     let mut browser = Browser::new();
     browser.load(&url);

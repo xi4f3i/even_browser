@@ -2,6 +2,7 @@ use native_tls::TlsConnector;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 
+#[derive(Debug)]
 pub struct URL {
     pub scheme: String,
     pub host: String,
@@ -142,6 +143,39 @@ impl URL {
         reader.read_to_string(&mut content).unwrap();
 
         content
+    }
+
+    pub fn resolve(&self, url_str: &str) -> URL {
+        if url_str.contains("://") {
+            return URL::new(url_str);
+        }
+
+        let mut url = url_str.to_string();
+
+        if !url.starts_with('/') {
+            let mut dir = match self.path.rsplit_once('/') {
+                Some((d, _)) => d,
+                None => "",
+            };
+
+            while url.starts_with("../") {
+                if url.len() >= 3 {
+                    url = url[3..].to_string();
+                }
+
+                if let Some((parent, _)) = dir.rsplit_once('/') {
+                    dir = parent;
+                }
+            }
+
+            url = format!("{}/{}", dir, url);
+        }
+
+        if url.starts_with("//") {
+            return URL::new(&format!("{}:{}", self.scheme, url));
+        }
+
+        URL::new(&format!("{}://{}:{}{}", self.scheme, self.host, self.port, url))
     }
 }
 

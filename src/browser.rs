@@ -3,8 +3,11 @@ use crate::layout::block_layout::BlockLayoutRef;
 use crate::layout::document_layout::{DocumentLayout, DocumentLayoutRef};
 use crate::layout::draw_command::DrawCommand;
 use crate::net::url::URL;
-use crate::parser::html_node::HTMLNodeRef;
+use crate::parser::css_parser::{CSSParser, CSSRules};
+use crate::parser::html_node::{HTMLNodeData, HTMLNodeRef};
 use crate::parser::html_parser::HTMLParser;
+use crate::parser::selector::cascade_priority;
+use crate::parser::style::style;
 use gl_rs as gl;
 use gl_rs::types::GLint;
 use glutin::config::{ConfigTemplateBuilder, GlConfig};
@@ -50,6 +53,7 @@ pub struct Browser {
     nodes: Option<HTMLNodeRef>,
     document: Option<DocumentLayoutRef>,
     display_list: Vec<DrawCommand>,
+    default_style_sheet: CSSRules,
 }
 
 impl Browser {
@@ -60,6 +64,7 @@ impl Browser {
             nodes: None,
             document: None,
             display_list: Vec::new(),
+            default_style_sheet: CSSParser::new(include_str!("asset/browser.css")).parse(),
         }
     }
 
@@ -67,13 +72,44 @@ impl Browser {
         self.nodes = HTMLParser::new(url.request()).parse();
 
         if let Some(node) = &self.nodes {
-            node.borrow().print_tree(0);
+            // node.borrow().print_tree(0);
+
+            let mut rules = self.default_style_sheet.clone();
+
+            let mut node_list = vec![];
+            self.tree_to_list(node.clone(), &mut node_list);
+
+            let links: Vec<String> = node_list
+                .iter()
+                .filter_map(|node| match &node.borrow().data {
+                    HTMLNodeData::Element(e) => {
+                        if e.tag == "link"
+                            && e.attributes.get("rel").map_or(false, |v| v == "stylesheet")
+                        {
+                            e.attributes.get("href").cloned()
+                        } else {
+                            None
+                        }
+                    }
+                    HTMLNodeData::Text(_) => None,
+                })
+                .collect();
+
+            for link in links.iter() {
+                let style_url = url.resolve(&link);
+                let body = style_url.request();
+                rules.extend(CSSParser::new(&body).parse());
+            }
+
+            rules.sort_by_key(|rule| cascade_priority(rule));
+            style(node.clone(), &rules);
 
             let doc_rc = DocumentLayout::new(node.clone());
             self.document = Some(doc_rc.clone());
 
             doc_rc.borrow_mut().layout();
-            doc_rc.borrow().print_tree(0);
+
+            // doc_rc.borrow().print_tree(0);
 
             if let Some(block) = &doc_rc.borrow().child {
                 self.display_list.clear();
@@ -81,9 +117,17 @@ impl Browser {
             }
         }
 
-        self.print_display_list();
+        // self.print_display_list();
 
         self.draw();
+    }
+
+    fn tree_to_list(&self, tree: HTMLNodeRef, list: &mut Vec<HTMLNodeRef>) {
+        list.push(tree.clone());
+
+        for child in tree.borrow().children.iter() {
+            self.tree_to_list(child.clone(), list);
+        }
     }
 
     fn print_display_list(&self) {

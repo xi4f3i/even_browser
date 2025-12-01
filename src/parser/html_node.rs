@@ -23,12 +23,15 @@ pub enum HTMLNodeData {
     Element(HTMLElementData),
 }
 
+pub type HTMLNodeStyle = HashMap<String, String>;
+
 #[derive(Debug)]
 pub struct HTMLNode {
     pub data: HTMLNodeData,
     pub parent: Option<HTMLNodeWeakRef>,
     pub children: Vec<HTMLNodeRef>,
     pub is_self_closing_tag: bool,
+    pub style: HTMLNodeStyle,
 }
 
 impl HTMLNode {
@@ -38,6 +41,7 @@ impl HTMLNode {
             parent,
             children: Vec::new(),
             is_self_closing_tag: false,
+            style: HashMap::new(),
         }))
     }
 
@@ -52,6 +56,7 @@ impl HTMLNode {
             parent,
             children: Vec::new(),
             is_self_closing_tag,
+            style: HashMap::new(),
         }))
     }
 

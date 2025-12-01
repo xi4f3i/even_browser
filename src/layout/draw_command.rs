@@ -39,7 +39,8 @@ pub struct DrawRect {
     left: f32,
     bottom: f32,
     right: f32,
-    color: Color,
+    color_str: String,
+    color: Option<Color>,
 }
 
 impl DrawRect {
@@ -50,18 +51,21 @@ impl DrawRect {
             self.right,
             self.bottom - scroll,
         );
-        paint.set_color(self.color);
+
+        if let Some(color) = self.color {
+            paint.set_color(color);
+        }
+
         canvas.draw_rect(rect, paint);
     }
 }
 
 impl Display for DrawRect {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        let rgb = self.color.to_rgb();
         write!(
             f,
-            "DrawRect(top={} left={} bottom={} right={} color={}{}{})",
-            self.top, self.left, self.bottom, self.right, rgb.r, rgb.g, rgb.b
+            "DrawRect(top={} left={} bottom={} right={} color={})",
+            self.top, self.left, self.bottom, self.right, self.color_str
         )
     }
 }
@@ -86,13 +90,27 @@ impl DrawCommand {
         })
     }
 
-    pub fn rect(x1: f32, y1: f32, x2: f32, y2: f32, color: Color) -> Self {
+    fn parse_css_color(color_str: &str) -> Option<Color> {
+        match csscolorparser::parse(color_str) {
+            Ok(color) => {
+                let [r, g, b, a] = color.to_rgba8();
+                Some(Color::from_argb(a, r, g, b))
+            }
+            Err(err) => {
+                println!("Error parsing css color: {}", err);
+                None
+            }
+        }
+    }
+
+    pub fn rect(x1: f32, y1: f32, x2: f32, y2: f32, color: &str) -> Self {
         Self::Rect(DrawRect {
             top: y1,
             left: x1,
             bottom: y2,
             right: x2,
-            color,
+            color: Self::parse_css_color(color),
+            color_str: color.to_string(),
         })
     }
 
