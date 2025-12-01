@@ -1,7 +1,7 @@
 pub const WIDTH: f32 = 800.0;
 pub const HEIGHT: f32 = 600.0;
-pub const HSTEP: f32 = 0.0; // 13.0
-pub const VSTEP: f32 = 0.0; // 18.0
+pub const HSTEP: f32 = 13.0;
+pub const VSTEP: f32 = 18.0;
 pub const SCROLL_STEP: f32 = 100.0;
 pub const DEFAULT_FONT_SIZE: i32 = 12;
 
