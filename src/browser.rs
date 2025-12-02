@@ -1,11 +1,11 @@
-use crate::constant::browser::{HEIGHT, SCROLL_STEP, WIDTH};
+use crate::constant::browser::{DEFAULT_BROWSER_PADDING, HEIGHT, SCROLL_STEP, WIDTH};
 use crate::layout::block_layout::BlockLayoutRef;
 use crate::layout::document_layout::{DocumentLayout, DocumentLayoutRef};
 use crate::layout::draw_command::DrawCommand;
 use crate::net::url::URL;
 use crate::parser::css_parser::{CSSParser, CSSRules};
 use crate::parser::html_node::HTMLNodeRef;
-use crate::parser::html_parser::{get_links, HTMLParser};
+use crate::parser::html_parser::{HTMLParser, get_links};
 use crate::parser::selector::cascade_priority;
 use crate::parser::style::style;
 use gl_rs as gl;
@@ -22,8 +22,8 @@ use raw_window_handle::HasWindowHandle;
 use skia_safe::gpu::gl::Format;
 use skia_safe::gpu::gl::FramebufferInfo;
 use skia_safe::gpu::gl::Interface;
-use skia_safe::gpu::{backend_render_targets, DirectContext, SurfaceOrigin};
-use skia_safe::{gpu, Color, ColorType, Paint, Surface};
+use skia_safe::gpu::{DirectContext, SurfaceOrigin, backend_render_targets};
+use skia_safe::{Color, ColorType, Paint, Surface, gpu};
 use std::ffi::CString;
 use std::num::NonZeroU32;
 use winit::application::ApplicationHandler;
@@ -333,7 +333,10 @@ impl ApplicationHandler for Browser {
                 if key_event.state.is_pressed() {
                     match key_event.logical_key {
                         Key::Named(NamedKey::ArrowDown) => {
-                            self.scroll += SCROLL_STEP;
+                            let max_y = self.document.clone().map_or(0.0, |d| {
+                                d.borrow().height + 2.0 * DEFAULT_BROWSER_PADDING - HEIGHT
+                            });
+                            self.scroll = (self.scroll + SCROLL_STEP).min(max_y);
 
                             if let Some(env) = &self.env {
                                 env.window.request_redraw();

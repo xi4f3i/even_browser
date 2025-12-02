@@ -1,3 +1,4 @@
+use crate::constant::layout::{DEFAULT_WIDTH, DEFAULT_X, DEFAULT_Y};
 use crate::layout::block_layout::{BlockLayout, BlockLayoutRef};
 use crate::layout::font_manager::{FontManager, FontManagerRef};
 use crate::parser::html_node::HTMLNodeRef;
@@ -12,6 +13,10 @@ pub struct DocumentLayout {
     node: HTMLNodeRef,
     pub child: Option<BlockLayoutRef>,
     font_manager: FontManagerRef,
+    x: f32,
+    y: f32,
+    pub height: f32,
+    width: f32,
 }
 
 impl DocumentLayout {
@@ -20,13 +25,18 @@ impl DocumentLayout {
             node,
             child: None,
             font_manager: FontManager::new(),
+            x: DEFAULT_X,
+            y: DEFAULT_Y,
+            height: 0.0,
+            width: DEFAULT_WIDTH,
         }))
     }
 
     pub fn layout(&mut self) {
         let child_rc = BlockLayout::new(self.node.clone(), None, None, self.font_manager.clone());
         self.child = Some(child_rc.clone());
-        BlockLayout::layout(child_rc);
+        BlockLayout::layout(child_rc.clone());
+        self.height = child_rc.borrow().height;
     }
 
     pub fn print_tree(&self, depth: usize) {

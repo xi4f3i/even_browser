@@ -38,7 +38,7 @@ pub struct BlockLayout {
     x: f32,
     y: f32,
     width: f32,
-    height: f32,
+    pub height: f32,
     mode: LayoutMode,
     cursor_x: f32,
     cursor_y: f32,
