@@ -1,3 +1,4 @@
+use crate::constant::DEFAULT_FONT_SIZE;
 use skia_safe::font_style::{Slant, Weight, Width};
 use skia_safe::{Font, FontMgr, FontStyle};
 use std::cell::RefCell;
@@ -59,4 +60,45 @@ impl FontManager {
 
         font
     }
+}
+
+/// https://drafts.csswg.org/css-fonts/#font-weight-prop
+pub fn parse_font_weight(weight: Option<&String>) -> Weight {
+    let Some(weight) = weight else {
+        return Weight::NORMAL;
+    };
+
+    match weight.trim().to_lowercase().as_str() {
+        "normal" => Weight::NORMAL,
+        "bold" => Weight::BOLD,
+        "bolder" => Weight::EXTRA_BOLD,
+        "lighter" => Weight::LIGHT,
+        _ => {
+            if let Ok(val) = weight.parse::<i32>() {
+                Weight::from(val)
+            } else {
+                Weight::NORMAL
+            }
+        }
+    }
+}
+
+/// https://drafts.csswg.org/css-fonts/#font-style-prop
+pub fn parse_font_style(style: Option<&String>) -> Slant {
+    let Some(style) = style else {
+        return Slant::Upright;
+    };
+
+    match style.trim().to_lowercase().as_str() {
+        "italic" => Slant::Italic,
+        "oblique" => Slant::Oblique,
+        _ => Slant::Upright,
+    }
+}
+
+pub fn parse_font_size(size: Option<&String>) -> i32 {
+    size.map(|s| s.trim_end_matches("px"))
+        .and_then(|s| s.parse::<i32>().ok())
+        // .map(|v| (v * 0.75) as i32)
+        .unwrap_or(DEFAULT_FONT_SIZE)
 }

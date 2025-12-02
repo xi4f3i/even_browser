@@ -2,12 +2,14 @@ use crate::constant::{
     DEFAULT_BROWSER_PADDING, DEFAULT_FONT_SIZE, DEFAULT_X, DEFAULT_Y, VSTEP, WIDTH,
 };
 use crate::layout::draw_command::DrawCommand;
-use crate::layout::font_manager::FontManagerRef;
+use crate::layout::font_manager::{
+    FontManagerRef, parse_font_size, parse_font_style, parse_font_weight,
+};
 use crate::layout::layout_mode::LayoutMode;
 use crate::parser::html_node::{HTMLNode, HTMLNodeData, HTMLNodeRef};
-use crate::parser::style::STYLE_KEY_BACKGROUND_COLOR;
-use skia_safe::font_style::{Slant, Weight};
+use crate::parser::style::{BACKGROUND_COLOR_DEFAULT_VALUE, STYLE_KEY_BACKGROUND_COLOR};
 use skia_safe::Font;
+use skia_safe::font_style::{Slant, Weight};
 use std::cell::RefCell;
 use std::fmt::{Display, Formatter, Result};
 use std::rc::{Rc, Weak};
@@ -19,6 +21,7 @@ pub struct DisplayItem {
     pub baseline: f32,
     pub text: String,
     pub font: Font,
+    pub color: String,
 }
 
 pub type BlockLayoutRef = Rc<RefCell<BlockLayout>>;
@@ -41,8 +44,8 @@ pub struct BlockLayout {
     weight: Weight,
     style: Slant,
     size: i32,
-    // (x_start, word, font)
-    line: Vec<(f32, String, Font)>,
+    // (x_start, word, font, color)
+    line: Vec<(f32, String, Font, String)>,
     display_list: Vec<DisplayItem>,
 }
 
@@ -136,14 +139,14 @@ impl BlockLayout {
         let mut max_ascent: f32 = 0.0;
         let mut max_spacing: f32 = 0.0;
 
-        for (_, _, font) in &self.line {
+        for (_, _, font, _) in &self.line {
             max_ascent = max_ascent.max(-font.metrics().1.ascent);
             max_spacing = max_spacing.max(font.spacing());
         }
 
         let baseline = self.y + self.cursor_y + max_ascent;
 
-        for (real_x, word, font) in self.line.drain(..) {
+        for (real_x, word, font, color) in self.line.drain(..) {
             let x = self.x + real_x;
             let ascent = -font.metrics().1.ascent;
             let y = baseline - ascent;
@@ -153,6 +156,7 @@ impl BlockLayout {
                 baseline,
                 text: word.to_string(),
                 font,
+                color: color.to_string(),
             })
         }
 
@@ -160,25 +164,31 @@ impl BlockLayout {
         self.cursor_y += max_spacing;
     }
 
-    fn word(&mut self, word: &str) {
-        let font = self
-            .font_manager
-            .borrow_mut()
-            .get_font(self.size, self.weight, self.style);
+    fn word(&mut self, word: &str, node: HTMLNodeRef) {
+        let weight = parse_font_weight(node.borrow().style.get("font-weight"));
+        let style = parse_font_style(node.borrow().style.get("font-style"));
+        let size = parse_font_size(node.borrow().style.get("font-size"));
+        let font = self.font_manager.borrow_mut().get_font(size, weight, style);
 
         // Bounding Box
-        // let w = font.measure_str(word, None).1.width();
+        let w = font.measure_str(word, None).1.width();
         // let space_w = font.measure_str(" ", None).1.width();
 
         // Advance Width
-        let w = font.measure_str(word, None).0;
+        // let w = font.measure_str(word, None).0;
         let space_w = font.measure_str(" ", None).0;
 
         if self.cursor_x + w > self.width {
             self.flush();
         }
 
-        self.line.push((self.cursor_x, word.to_string(), font));
+        let color = node
+            .borrow()
+            .style
+            .get("color")
+            .map_or("black".to_string(), |c| c.to_string());
+        self.line
+            .push((self.cursor_x, word.to_string(), font, color));
 
         self.cursor_x += w + space_w;
     }
@@ -209,20 +219,24 @@ impl BlockLayout {
     }
 
     fn recurse(&mut self, node_rc: HTMLNodeRef) {
-        let node = &*node_rc.borrow();
-        match &node.data {
+        let node_data = &node_rc.borrow().data;
+        let children = &node_rc.borrow().children;
+        match node_data {
             HTMLNodeData::Text(t) => {
                 for word in t.text.split_whitespace() {
-                    self.word(word);
+                    self.word(word, node_rc.clone());
                 }
             }
             HTMLNodeData::Element(e) => {
-                let tag = &e.tag;
-                self.open_tag(tag);
-                for child in &node.children {
+                // let tag = &e.tag;
+                if e.tag == "br" {
+                    self.flush();
+                }
+                // self.open_tag(tag);
+                for child in children {
                     self.recurse(child.clone());
                 }
-                self.close_tag(tag);
+                // self.close_tag(tag);
             }
         }
     }
@@ -267,7 +281,7 @@ impl BlockLayout {
     pub fn paint(&self) -> Vec<DrawCommand> {
         let mut cmds = Vec::new();
 
-        if let Some(background_color) = self.node.borrow().style.get(STYLE_KEY_BACKGROUND_COLOR) {
+        if let Some(background_color) = self.node.borrow().style.get(STYLE_KEY_BACKGROUND_COLOR) && background_color != BACKGROUND_COLOR_DEFAULT_VALUE {
             let x2 = self.x + self.width;
             let y2 = self.y + self.height;
             cmds.push(DrawCommand::rect(self.x, self.y, x2, y2, background_color));
@@ -290,6 +304,7 @@ impl BlockLayout {
                     item.baseline,
                     item.text.to_string(),
                     item.font.clone(),
+                    &item.color,
                 ));
             }
         }

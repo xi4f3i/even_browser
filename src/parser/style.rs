@@ -1,14 +1,12 @@
-use crate::parser::css_parser::{CSSParser, CSSRules, PERCENT};
+use crate::parser::css_parser::{CSSParser, CSSRuleBody, CSSRules, PERCENT};
 use crate::parser::html_node::{HTMLNodeData, HTMLNodeRef, HTMLNodeWeakRef};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-const DEFAULT_FONT_SIZE: &str = "16px";
+const DEFAULT_FONT_SIZE: &str = "12px";
 
-// 定义一个全局静态变量，初始为空
 static INHERITED_PROPERTIES: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
 
-// 获取该 HashMap 的函数
 fn get_inherited_properties() -> &'static HashMap<&'static str, &'static str> {
     INHERITED_PROPERTIES.get_or_init(|| {
         let mut m = HashMap::new();
@@ -24,11 +22,8 @@ const ATTRIBUTE_KEY_STYLE: &str = "style";
 pub const STYLE_KEY_BACKGROUND_COLOR: &str = "background-color";
 pub const BACKGROUND_COLOR_DEFAULT_VALUE: &str = "transparent";
 
-pub fn style(node_rc: HTMLNodeRef, rules: &CSSRules) {
+fn inherited_style(node_rc: HTMLNodeRef) {
     let node = &mut *node_rc.borrow_mut();
-    node.style.clear();
-
-    // Inherited style
     if let Some(parent_weak) = &node.parent
         && let Some(parent_rc) = parent_weak.upgrade()
     {
@@ -41,28 +36,45 @@ pub fn style(node_rc: HTMLNodeRef, rules: &CSSRules) {
             }
         }
     }
+}
 
-    // External style
+fn matched_rules(node_rc: HTMLNodeRef, rules: &CSSRules) -> Vec<&CSSRuleBody> {
+    let mut matched_rules = Vec::new();
     for (selector, body) in rules.iter() {
-        if !selector.matches(node_rc.clone()) {
-            continue;
+        if selector.matches(node_rc.clone()) {
+            matched_rules.push(body);
         }
+    }
+    matched_rules
+}
 
+fn external_style(node_rc: HTMLNodeRef, rules: &CSSRules) {
+    let matched_rules = matched_rules(node_rc.clone(), rules);
+
+    let node = &mut *node_rc.borrow_mut();
+
+    for body in matched_rules.iter() {
         for (property, value) in body.iter() {
             node.style.insert(property.to_string(), value.to_string());
         }
     }
+}
 
-    // Inline style
+fn inline_style(node_rc: HTMLNodeRef) {
+    let node = &mut *node_rc.borrow_mut();
     if let HTMLNodeData::Element(e) = &node.data
         && let Some(style) = e.attributes.get(ATTRIBUTE_KEY_STYLE)
     {
         let pairs = CSSParser::new(style).body();
         node.style.extend(pairs);
     }
+}
 
-    // Calculate percentage font size
+fn percentage_font_size(node_rc: HTMLNodeRef) {
+    let node = &mut *node_rc.borrow_mut();
+
     let current_font_size = node.style.get("font-size").cloned();
+
     if let Some(current_val) = current_font_size
         && current_val.ends_with(PERCENT)
     {
@@ -84,8 +96,28 @@ pub fn style(node_rc: HTMLNodeRef, rules: &CSSRules) {
         node.style
             .insert("font-size".to_string(), format!("{}px", new_size));
     }
+}
 
-    for child in &node.children {
+pub fn style(node_rc: HTMLNodeRef, rules: &CSSRules) {
+    {
+        let node = &mut *node_rc.borrow_mut();
+        node.style.clear();
+    }
+
+    // Inherited style
+    inherited_style(node_rc.clone());
+
+    // External style
+    external_style(node_rc.clone(), rules);
+
+    // Inline style
+    inline_style(node_rc.clone());
+
+    // Calculate percentage font size
+    percentage_font_size(node_rc.clone());
+
+    let children = &node_rc.borrow().children;
+    for child in children {
         style(child.clone(), rules);
     }
 }

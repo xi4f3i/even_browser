@@ -9,11 +9,14 @@ pub struct DrawText {
     bottom: f32,
     text: String,
     font: Font,
+    color_str: String,
+    color: Color,
 }
 
 impl DrawText {
     pub fn execute(&self, scroll: f32, canvas: &Canvas, paint: &mut Paint) {
         let point = Point::new(self.left, self.baseline - scroll);
+        paint.set_color(self.color);
         canvas.draw_str(&self.text, point, &self.font, paint);
     }
 }
@@ -22,12 +25,13 @@ impl Display for DrawText {
     fn fmt(&self, f: &mut Formatter) -> Result {
         write!(
             f,
-            "DrawText(top={} left={} baseline={} bottom={} font={} text={})",
+            "DrawText(top={} left={} baseline={} bottom={} font={} color={} text={})",
             self.top,
             self.left,
             self.baseline,
             self.bottom,
             self.font.typeface().family_name(),
+            self.color_str,
             self.text,
         )
     }
@@ -77,7 +81,7 @@ pub enum DrawCommand {
 }
 
 impl DrawCommand {
-    pub fn text(x1: f32, y1: f32, baseline: f32, text: String, font: Font) -> Self {
+    pub fn text(x1: f32, y1: f32, baseline: f32, text: String, font: Font, color: &str) -> Self {
         let bottom = y1 + font.spacing();
 
         Self::Text(DrawText {
@@ -87,6 +91,8 @@ impl DrawCommand {
             bottom,
             text,
             font,
+            color_str: color.to_string(),
+            color: Self::parse_css_color(color).unwrap_or(Color::BLACK),
         })
     }
 

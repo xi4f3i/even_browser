@@ -1,5 +1,6 @@
 use crate::parser::css_parser::CSSRule;
 use crate::parser::html_node::{HTMLNodeData, HTMLNodeRef};
+use std::fmt::{Display, Formatter, Result};
 
 pub type Priority = usize;
 
@@ -23,6 +24,12 @@ impl TagSelector {
 
     fn get_priority(&self) -> Priority {
         self.priority
+    }
+}
+
+impl Display for TagSelector {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        write!(f, "priority={} tag={}", self.priority, self.tag)
     }
 }
 
@@ -77,6 +84,16 @@ impl DescendantSelector {
     }
 }
 
+impl Display for DescendantSelector {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        write!(
+            f,
+            "priority={} ancestor={} descendant={}",
+            self.priority, self.ancestor, self.descendant
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Selector {
     Tag(TagSelector),
@@ -103,6 +120,19 @@ impl Selector {
         match self {
             Selector::Tag(selector) => selector.get_priority(),
             Selector::Descendant(selector) => selector.get_priority(),
+        }
+    }
+}
+
+impl Display for Selector {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            Selector::Tag(t) => {
+                write!(f, "Selector::Tag={}", t)
+            }
+            Selector::Descendant(d) => {
+                write!(f, "Selector::Descendant={}", d)
+            }
         }
     }
 }
