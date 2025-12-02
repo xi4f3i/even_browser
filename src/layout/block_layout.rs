@@ -1,13 +1,11 @@
-use crate::constant::{
-    DEFAULT_BROWSER_PADDING, DEFAULT_FONT_SIZE, DEFAULT_X, DEFAULT_Y, VSTEP, WIDTH,
-};
+use crate::constant::layout::{DEFAULT_WIDTH, DEFAULT_X, DEFAULT_Y, VSTEP};
+use crate::constant::style::{BACKGROUND_COLOR_DEFAULT_VALUE, DEFAULT_COLOR_STR, DEFAULT_FONT_SIZE_NUM, STYLE_KEY_BACKGROUND_COLOR, STYLE_KEY_COLOR};
 use crate::layout::draw_command::DrawCommand;
 use crate::layout::font_manager::{
     FontManagerRef, parse_font_size, parse_font_style, parse_font_weight,
 };
 use crate::layout::layout_mode::LayoutMode;
 use crate::parser::html_node::{HTMLNode, HTMLNodeData, HTMLNodeRef};
-use crate::parser::style::{BACKGROUND_COLOR_DEFAULT_VALUE, STYLE_KEY_BACKGROUND_COLOR};
 use skia_safe::Font;
 use skia_safe::font_style::{Slant, Weight};
 use std::cell::RefCell;
@@ -73,7 +71,7 @@ impl BlockLayout {
             cursor_y: 0.0,
             weight: Weight::NORMAL,
             style: Slant::Upright,
-            size: DEFAULT_FONT_SIZE,
+            size: DEFAULT_FONT_SIZE_NUM,
             line: Vec::new(),
             display_list: Vec::new(),
         }))
@@ -99,7 +97,7 @@ impl BlockLayout {
             (x, y, width)
         } else {
             // default value
-            (DEFAULT_X, DEFAULT_Y, WIDTH - 2.0 * DEFAULT_BROWSER_PADDING)
+            (DEFAULT_X, DEFAULT_Y, DEFAULT_WIDTH)
         }
     }
 
@@ -185,37 +183,12 @@ impl BlockLayout {
         let color = node
             .borrow()
             .style
-            .get("color")
-            .map_or("black".to_string(), |c| c.to_string());
+            .get(STYLE_KEY_COLOR)
+            .map_or(DEFAULT_COLOR_STR.to_string(), |c| c.to_string());
         self.line
             .push((self.cursor_x, word.to_string(), font, color));
 
         self.cursor_x += w + space_w;
-    }
-
-    fn open_tag(&mut self, tag: &str) {
-        match tag {
-            "i" => self.style = Slant::Italic,
-            "b" => self.weight = Weight::BOLD,
-            "small" => self.size -= 2,
-            "big" => self.size += 4,
-            "br" => self.flush(),
-            _ => {}
-        }
-    }
-
-    fn close_tag(&mut self, tag: &str) {
-        match tag {
-            "i" => self.style = Slant::Upright,
-            "b" => self.weight = Weight::NORMAL,
-            "small" => self.size += 2,
-            "big" => self.size -= 4,
-            "p" => {
-                self.flush();
-                self.cursor_y += VSTEP;
-            }
-            _ => {}
-        }
     }
 
     fn recurse(&mut self, node_rc: HTMLNodeRef) {
@@ -228,15 +201,12 @@ impl BlockLayout {
                 }
             }
             HTMLNodeData::Element(e) => {
-                // let tag = &e.tag;
                 if e.tag == "br" {
                     self.flush();
                 }
-                // self.open_tag(tag);
                 for child in children {
                     self.recurse(child.clone());
                 }
-                // self.close_tag(tag);
             }
         }
     }
@@ -246,7 +216,7 @@ impl BlockLayout {
         self.cursor_y = 0.0;
         self.weight = Weight::NORMAL;
         self.style = Slant::Upright;
-        self.size = DEFAULT_FONT_SIZE;
+        self.size = DEFAULT_FONT_SIZE_NUM;
         self.line.clear();
         self.recurse(self.node.clone());
         self.flush();
@@ -281,7 +251,9 @@ impl BlockLayout {
     pub fn paint(&self) -> Vec<DrawCommand> {
         let mut cmds = Vec::new();
 
-        if let Some(background_color) = self.node.borrow().style.get(STYLE_KEY_BACKGROUND_COLOR) && background_color != BACKGROUND_COLOR_DEFAULT_VALUE {
+        if let Some(background_color) = self.node.borrow().style.get(STYLE_KEY_BACKGROUND_COLOR)
+            && background_color != BACKGROUND_COLOR_DEFAULT_VALUE
+        {
             let x2 = self.x + self.width;
             let y2 = self.y + self.height;
             cmds.push(DrawCommand::rect(self.x, self.y, x2, y2, background_color));

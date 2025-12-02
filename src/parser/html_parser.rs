@@ -1,11 +1,13 @@
+use crate::constant::common::{DOUBLE_QUOTE, EQUALS, EXCLAMATION_MARK, SINGLE_QUOTE, SLASH};
+use crate::constant::html::{
+    ATTRIBUTE_KEY_HREF, ATTRIBUTE_KEY_REL, ATTRIBUTE_REL_VALUE_STYLESHEET, BODY, HEAD,
+    HEAD_ELEMENTS, HTML, LINK, SELF_CLOSING_ELEMENTS, SLASH_HEAD, SLASH_HTML,
+};
+use crate::parser::html_node::HTMLNodeRef;
+use crate::parser::html_node::{HTMLNode, HTMLNodeData};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::{cell::RefCell, rc::Weak};
-
-use crate::{
-    constant::{HEAD_TAGS, SELF_CLOSING_TAGS},
-    parser::html_node::{HTMLNode, HTMLNodeData},
-};
 
 #[derive(Debug)]
 pub struct HTMLParser {
@@ -111,13 +113,13 @@ impl HTMLParser {
     fn add_tag(&mut self, tag_text: &str) {
         let (tag, mut attributes) = self.get_attributes(tag_text);
 
-        if tag.starts_with('!') {
+        if tag.starts_with(EXCLAMATION_MARK) {
             return;
         }
 
         self.implicit_tags(Some(&tag));
 
-        if tag.starts_with('/') {
+        if tag.starts_with(SLASH) {
             if self.unfinished.len() <= 1 {
                 return;
             }
@@ -131,8 +133,8 @@ impl HTMLParser {
                 .last()
                 .expect("Add tag: unfinished last failed");
             parent.borrow_mut().children.push(node);
-        } else if SELF_CLOSING_TAGS.contains(&tag.as_str()) {
-            attributes.remove("/"); // remove slash attribute of the self-closing tag
+        } else if SELF_CLOSING_ELEMENTS.contains(&tag.as_str()) {
+            attributes.remove(&SLASH.to_string()); // remove slash attribute of the self-closing tag
 
             let node = HTMLNode::new_element(self.get_parent_weak(), tag, attributes, true);
             if let Some(parent_rc) = self.unfinished.last() {
@@ -156,7 +158,7 @@ impl HTMLParser {
                 .unfinished
                 .get(0)
                 .map_or(false, |n| match &n.borrow().data {
-                    HTMLNodeData::Element(e) => e.tag == "html",
+                    HTMLNodeData::Element(e) => e.tag == HTML,
                     _ => false,
                 });
 
@@ -164,28 +166,28 @@ impl HTMLParser {
                 .unfinished
                 .get(1)
                 .map_or(false, |n| match &n.borrow().data {
-                    HTMLNodeData::Element(e) => e.tag == "head",
+                    HTMLNodeData::Element(e) => e.tag == HEAD,
                     _ => false,
                 });
 
-            if self.unfinished.is_empty() && tag != "html" {
-                self.add_tag("html");
+            if self.unfinished.is_empty() && tag != HTML {
+                self.add_tag(HTML);
             } else if is_html_root
                 && self.unfinished.len() == 1
-                && !["head", "body", "/html"].contains(&tag)
+                && ![HEAD, BODY, SLASH_HTML].contains(&tag)
             {
-                if HEAD_TAGS.contains(&tag) {
-                    self.add_tag("head");
+                if HEAD_ELEMENTS.contains(&tag) {
+                    self.add_tag(HEAD);
                 } else {
-                    self.add_tag("body");
+                    self.add_tag(BODY);
                 }
             } else if is_html_root
                 && is_head_second
                 && self.unfinished.len() == 2
-                && !HEAD_TAGS.contains(&tag)
-                && tag != "/head"
+                && !HEAD_ELEMENTS.contains(&tag)
+                && tag != SLASH_HEAD
             {
-                self.add_tag("/head");
+                self.add_tag(SLASH_HEAD);
             } else {
                 break;
             }
@@ -203,7 +205,7 @@ impl HTMLParser {
         let mut attributes = HashMap::new();
 
         for attr_pair in parts {
-            let mut parts_pair = attr_pair.splitn(2, '=');
+            let mut parts_pair = attr_pair.splitn(2, EQUALS);
             let key = parts_pair
                 .next()
                 .expect("Get attributes: parts pair next failed")
@@ -211,7 +213,9 @@ impl HTMLParser {
 
             // Simple implementation, to be improved
             if let Some(mut value) = parts_pair.next() {
-                if value.len() > 2 && (value.starts_with('\'') || value.starts_with('"')) {
+                if value.len() > 2
+                    && (value.starts_with(SINGLE_QUOTE) || value.starts_with(DOUBLE_QUOTE))
+                {
                     value = &value[1..value.len() - 1];
                 }
                 attributes.insert(key, value.to_string());
@@ -222,4 +226,35 @@ impl HTMLParser {
 
         (tag, attributes)
     }
+}
+
+pub fn tree_to_list(tree: HTMLNodeRef, list: &mut Vec<HTMLNodeRef>) {
+    list.push(tree.clone());
+
+    for child in tree.borrow().children.iter() {
+        tree_to_list(child.clone(), list);
+    }
+}
+
+pub fn get_links(node: HTMLNodeRef) -> Vec<String> {
+    let mut node_list = vec![];
+    tree_to_list(node.clone(), &mut node_list);
+
+    node_list
+        .iter()
+        .filter_map(|node| match &node.borrow().data {
+            HTMLNodeData::Element(e) => {
+                if e.tag == LINK
+                    && e.attributes
+                        .get(ATTRIBUTE_KEY_REL)
+                        .map_or(false, |v| v == ATTRIBUTE_REL_VALUE_STYLESHEET)
+                {
+                    e.attributes.get(ATTRIBUTE_KEY_HREF).cloned()
+                } else {
+                    None
+                }
+            }
+            HTMLNodeData::Text(_) => None,
+        })
+        .collect()
 }

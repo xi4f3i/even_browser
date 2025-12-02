@@ -1,4 +1,4 @@
-use crate::constant::DEFAULT_FONT_SIZE;
+use crate::constant::style::{DEFAULT_FONT_SIZE_NUM, UNIT_PIXEL};
 use skia_safe::font_style::{Slant, Weight, Width};
 use skia_safe::{Font, FontMgr, FontStyle};
 use std::cell::RefCell;
@@ -97,8 +97,8 @@ pub fn parse_font_style(style: Option<&String>) -> Slant {
 }
 
 pub fn parse_font_size(size: Option<&String>) -> i32 {
-    size.map(|s| s.trim_end_matches("px"))
+    size.map(|s| s.trim_end_matches(UNIT_PIXEL))
         .and_then(|s| s.parse::<i32>().ok())
         // .map(|v| (v * 0.75) as i32)
-        .unwrap_or(DEFAULT_FONT_SIZE)
+        .unwrap_or(DEFAULT_FONT_SIZE_NUM)
 }

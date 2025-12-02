@@ -1,4 +1,4 @@
-use crate::constant::BLOCK_ELEMENTS;
+use crate::constant::html::BLOCK_ELEMENTS;
 use crate::parser::html_node::{HTMLNodeData, HTMLNodeRef};
 use std::fmt::{Display, Formatter, Result};
 

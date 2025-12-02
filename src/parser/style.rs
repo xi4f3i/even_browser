@@ -1,26 +1,10 @@
-use crate::parser::css_parser::{CSSParser, CSSRuleBody, CSSRules, PERCENT};
+use crate::constant::common::PERCENT;
+use crate::constant::html::ATTRIBUTE_KEY_STYLE;
+use crate::constant::style::{
+    DEFAULT_FONT_SIZE, STYLE_KEY_FONT_SIZE, UNIT_PIXEL, get_inherited_properties,
+};
+use crate::parser::css_parser::{CSSParser, CSSRuleBody, CSSRules};
 use crate::parser::html_node::{HTMLNodeData, HTMLNodeRef, HTMLNodeWeakRef};
-use std::collections::HashMap;
-use std::sync::OnceLock;
-
-const DEFAULT_FONT_SIZE: &str = "12px";
-
-static INHERITED_PROPERTIES: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
-
-fn get_inherited_properties() -> &'static HashMap<&'static str, &'static str> {
-    INHERITED_PROPERTIES.get_or_init(|| {
-        let mut m = HashMap::new();
-        m.insert("font-size", DEFAULT_FONT_SIZE);
-        m.insert("font-style", "normal");
-        m.insert("font-weight", "normal");
-        m.insert("color", "black");
-        m
-    })
-}
-
-const ATTRIBUTE_KEY_STYLE: &str = "style";
-pub const STYLE_KEY_BACKGROUND_COLOR: &str = "background-color";
-pub const BACKGROUND_COLOR_DEFAULT_VALUE: &str = "transparent";
 
 fn inherited_style(node_rc: HTMLNodeRef) {
     let node = &mut *node_rc.borrow_mut();
@@ -73,7 +57,7 @@ fn inline_style(node_rc: HTMLNodeRef) {
 fn percentage_font_size(node_rc: HTMLNodeRef) {
     let node = &mut *node_rc.borrow_mut();
 
-    let current_font_size = node.style.get("font-size").cloned();
+    let current_font_size = node.style.get(STYLE_KEY_FONT_SIZE).cloned();
 
     if let Some(current_val) = current_font_size
         && current_val.ends_with(PERCENT)
@@ -87,14 +71,16 @@ fn percentage_font_size(node_rc: HTMLNodeRef) {
             / 100.0;
 
         let parent_px = parent_font_size
-            .trim_end_matches("px")
+            .trim_end_matches(UNIT_PIXEL)
             .parse::<f32>()
             .unwrap_or(16.0);
 
         let new_size = node_pct * parent_px;
 
-        node.style
-            .insert("font-size".to_string(), format!("{}px", new_size));
+        node.style.insert(
+            STYLE_KEY_FONT_SIZE.to_string(),
+            format!("{}{}", new_size, UNIT_PIXEL),
+        );
     }
 }
 
@@ -131,7 +117,7 @@ fn get_parent_font_size(parent_weak: Option<HTMLNodeWeakRef>) -> String {
         return DEFAULT_FONT_SIZE.to_string();
     };
 
-    if let Some(font_size) = parent_rc.borrow().style.get("font-size") {
+    if let Some(font_size) = parent_rc.borrow().style.get(STYLE_KEY_FONT_SIZE) {
         return font_size.to_string();
     }
 

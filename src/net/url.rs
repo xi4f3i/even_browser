@@ -1,6 +1,8 @@
 use native_tls::TlsConnector;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
+use crate::constant::common::{COLON, SLASH};
+use crate::constant::net::{HTTP, HTTPS};
 
 #[derive(Debug)]
 pub struct URL {
@@ -18,10 +20,10 @@ impl URL {
                 eprintln!("Malformed URL found, falling back to the WBE home page.");
                 eprintln!("  URL was: {}", url_str);
                 URL {
-                    scheme: "https".to_string(),
+                    scheme: HTTPS.to_string(),
                     host: "browser.engineering".to_string(),
                     port: 443,
-                    path: "/".to_string(),
+                    path: SLASH.to_string(),
                 }
             }
         }
@@ -34,28 +36,28 @@ impl URL {
         }
 
         let scheme = parts[0].to_string();
-        if scheme != "http" && scheme != "https" {
+        if scheme != HTTP && scheme != HTTPS {
             return Err(format!("Unsupported scheme: {}", scheme));
         }
 
         let mut url = parts[1].to_string();
 
-        if !url.contains('/') {
-            url.push('/');
+        if !url.contains(SLASH) {
+            url.push(SLASH);
         }
 
-        let host_path: Vec<&str> = url.splitn(2, '/').collect();
+        let host_path: Vec<&str> = url.splitn(2, SLASH).collect();
         let host_part = host_path[0].to_string();
-        let path = "/".to_string() + host_path.get(1).unwrap_or(&"");
+        let path = SLASH.to_string() + host_path.get(1).unwrap_or(&"");
 
         let default_port = match scheme.as_str() {
-            "http" => 80,
-            "https" => 443,
+            HTTP => 80,
+            HTTPS => 443,
             _ => 80,
         };
 
-        let (host, port) = if host_part.contains(':') {
-            let host_port: Vec<&str> = host_part.split(':').collect();
+        let (host, port) = if host_part.contains(COLON) {
+            let host_port: Vec<&str> = host_part.split(COLON).collect();
             if host_port.len() != 2 {
                 return Err("Invalid host:port format".to_string());
             }
@@ -79,7 +81,7 @@ impl URL {
         let address = format!("{}:{}", self.host, self.port);
         let stream = TcpStream::connect(&address).unwrap();
 
-        if self.scheme == "https" {
+        if self.scheme == HTTPS {
             let connector = TlsConnector::new().unwrap();
             let tls_stream = connector.connect(&self.host, stream).unwrap();
             self.handle_https_response(tls_stream)
@@ -131,7 +133,7 @@ impl URL {
                 break;
             }
 
-            if let Some((key, value)) = trimmed.split_once(':') {
+            if let Some((key, value)) = trimmed.split_once(COLON) {
                 headers.insert(key.trim().to_lowercase(), value.trim().to_string());
             }
         }
@@ -152,8 +154,8 @@ impl URL {
 
         let mut url = url_str.to_string();
 
-        if !url.starts_with('/') {
-            let mut dir = match self.path.rsplit_once('/') {
+        if !url.starts_with(SLASH) {
+            let mut dir = match self.path.rsplit_once(SLASH) {
                 Some((d, _)) => d,
                 None => "",
             };
@@ -163,7 +165,7 @@ impl URL {
                     url = url[3..].to_string();
                 }
 
-                if let Some((parent, _)) = dir.rsplit_once('/') {
+                if let Some((parent, _)) = dir.rsplit_once(SLASH) {
                     dir = parent;
                 }
             }

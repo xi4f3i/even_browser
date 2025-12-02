@@ -1,15 +1,8 @@
+use crate::constant::common::{
+    CLOSING_BRACE, COLON, DASH, DOT, HASH, OPENING_BRACE, PERCENT, SEMICOLON,
+};
 use crate::parser::selector::Selector;
 use std::collections::HashMap;
-
-const COLON: char = ':';
-const HASH: char = '#';
-const DASH: char = '-';
-const DOT: char = '.';
-pub const PERCENT: char = '%';
-const SEMICOLON: char = ';';
-const OPENING_BRACE: char = '{';
-const CLOSING_BRACE: char = '}';
-const IGNORE_UNTIL_CHARS: [char; 2] = [SEMICOLON, CLOSING_BRACE];
 
 pub type CSSParserError = String;
 pub type CSSRuleBody = HashMap<String, String>;
@@ -116,7 +109,7 @@ impl CSSParser {
                 Err(msg) => {
                     println!("{}", msg);
 
-                    if let Some(why) = self.ignore_until(&IGNORE_UNTIL_CHARS)
+                    if let Some(why) = self.ignore_until(&[SEMICOLON, CLOSING_BRACE])
                         && why == SEMICOLON
                     {
                         match self.literal(SEMICOLON) {

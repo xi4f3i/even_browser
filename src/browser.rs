@@ -1,11 +1,11 @@
-use crate::constant::{HEIGHT, SCROLL_STEP, WIDTH};
+use crate::constant::browser::{HEIGHT, SCROLL_STEP, WIDTH};
 use crate::layout::block_layout::BlockLayoutRef;
 use crate::layout::document_layout::{DocumentLayout, DocumentLayoutRef};
 use crate::layout::draw_command::DrawCommand;
 use crate::net::url::URL;
 use crate::parser::css_parser::{CSSParser, CSSRules};
 use crate::parser::html_node::{HTMLNodeData, HTMLNodeRef};
-use crate::parser::html_parser::HTMLParser;
+use crate::parser::html_parser::{HTMLParser, get_links, tree_to_list};
 use crate::parser::selector::cascade_priority;
 use crate::parser::style::style;
 use gl_rs as gl;
@@ -69,65 +69,45 @@ impl Browser {
     }
 
     pub fn load(&mut self, url: &URL) {
-        self.nodes = HTMLParser::new(url.request()).parse();
+        let body = url.request();
+        self.nodes = HTMLParser::new(body).parse();
 
-        if let Some(node) = &self.nodes {
-            // node.borrow().print_tree(0);
+        let Some(node) = &self.nodes else {
+            return;
+        };
+        // node.borrow().print_tree(0);
 
-            let mut rules = self.default_style_sheet.clone();
+        let mut rules = self.default_style_sheet.clone();
 
-            let mut node_list = vec![];
-            self.tree_to_list(node.clone(), &mut node_list);
+        let links = get_links(node.clone());
 
-            let links: Vec<String> = node_list
-                .iter()
-                .filter_map(|node| match &node.borrow().data {
-                    HTMLNodeData::Element(e) => {
-                        if e.tag == "link"
-                            && e.attributes.get("rel").map_or(false, |v| v == "stylesheet")
-                        {
-                            e.attributes.get("href").cloned()
-                        } else {
-                            None
-                        }
-                    }
-                    HTMLNodeData::Text(_) => None,
-                })
-                .collect();
-
-            for link in links.iter() {
-                let style_url = url.resolve(&link);
-                let body = style_url.request();
-                rules.extend(CSSParser::new(&body).parse());
-            }
-
-            rules.sort_by_key(|rule| cascade_priority(rule));
-            style(node.clone(), &rules);
-
-            let doc_rc = DocumentLayout::new(node.clone());
-            self.document = Some(doc_rc.clone());
-
-            doc_rc.borrow_mut().layout();
-
-            // doc_rc.borrow().print_tree(0);
-
-            if let Some(block) = &doc_rc.borrow().child {
-                self.display_list.clear();
-                self.paint_tree(block.clone());
-            }
+        for link in links.iter() {
+            let style_url = url.resolve(&link);
+            let body = style_url.request();
+            rules.extend(CSSParser::new(&body).parse());
         }
+
+        rules.sort_by_key(|rule| cascade_priority(rule));
+        style(node.clone(), &rules);
+
+        let doc_rc = DocumentLayout::new(node.clone());
+        self.document = Some(doc_rc.clone());
+
+        doc_rc.borrow_mut().layout();
+
+        // doc_rc.borrow().print_tree(0);
+
+        self.display_list.clear();
+
+        let Some(block) = &doc_rc.borrow().child else {
+            return;
+        };
+
+        self.paint_tree(block.clone());
 
         // self.print_display_list();
 
         self.draw();
-    }
-
-    fn tree_to_list(&self, tree: HTMLNodeRef, list: &mut Vec<HTMLNodeRef>) {
-        list.push(tree.clone());
-
-        for child in tree.borrow().children.iter() {
-            self.tree_to_list(child.clone(), list);
-        }
     }
 
     fn print_display_list(&self) {
