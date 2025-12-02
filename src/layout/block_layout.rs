@@ -1,5 +1,8 @@
-use crate::constant::layout::{DEFAULT_WIDTH, DEFAULT_X, DEFAULT_Y, VSTEP};
-use crate::constant::style::{BACKGROUND_COLOR_DEFAULT_VALUE, DEFAULT_COLOR_STR, DEFAULT_FONT_SIZE_NUM, STYLE_KEY_BACKGROUND_COLOR, STYLE_KEY_COLOR};
+use crate::constant::layout::{DEFAULT_WIDTH, DEFAULT_X, DEFAULT_Y};
+use crate::constant::style::{
+    BACKGROUND_COLOR_DEFAULT_VALUE, DEFAULT_COLOR_STR, DEFAULT_FONT_SIZE_NUM,
+    STYLE_KEY_BACKGROUND_COLOR, STYLE_KEY_COLOR,
+};
 use crate::layout::draw_command::DrawCommand;
 use crate::layout::font_manager::{
     FontManagerRef, parse_font_size, parse_font_style, parse_font_weight,
