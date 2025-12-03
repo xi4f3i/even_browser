@@ -25,12 +25,13 @@ impl Display for DrawText {
     fn fmt(&self, f: &mut Formatter) -> Result {
         write!(
             f,
-            "DrawText(top={} left={} baseline={} bottom={} font={} color={} text={})",
+            "DrawText(top={} left={} baseline={} bottom={} font_family={} font_size={} color={} text={})",
             self.top,
             self.left,
             self.baseline,
             self.bottom,
             self.font.typeface().family_name(),
+            self.font.size(),
             self.color_str,
             self.text,
         )

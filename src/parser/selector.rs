@@ -29,7 +29,11 @@ impl TagSelector {
 
 impl Display for TagSelector {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "priority={} tag={}", self.priority, self.tag)
+        write!(
+            f,
+            "TagSelector(tag={}, priority={})",
+            self.tag, self.priority
+        )
     }
 }
 
@@ -88,8 +92,8 @@ impl Display for DescendantSelector {
     fn fmt(&self, f: &mut Formatter) -> Result {
         write!(
             f,
-            "priority={} ancestor={} descendant={}",
-            self.priority, self.ancestor, self.descendant
+            "DescendantSelector(ancestor={}, descendant={}, priority={})",
+            self.ancestor, self.descendant, self.priority
         )
     }
 }
@@ -128,10 +132,10 @@ impl Display for Selector {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
             Selector::Tag(t) => {
-                write!(f, "Selector::Tag={}", t)
+                write!(f, "{}", t)
             }
             Selector::Descendant(d) => {
-                write!(f, "Selector::Descendant={}", d)
+                write!(f, "{}", d)
             }
         }
     }

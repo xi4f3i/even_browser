@@ -49,8 +49,9 @@ fn inline_style(node_rc: HTMLNodeRef) {
     if let HTMLNodeData::Element(e) = &node.data
         && let Some(style) = e.attributes.get(ATTRIBUTE_KEY_STYLE)
     {
-        let pairs = CSSParser::new(style).body();
-        node.style.extend(pairs);
+        if let Ok(pairs) = CSSParser::new(style).body() {
+            node.style.extend(pairs);
+        }
     }
 }
 

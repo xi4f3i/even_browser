@@ -5,7 +5,7 @@ use crate::layout::draw_command::DrawCommand;
 use crate::net::url::URL;
 use crate::parser::css_parser::{CSSParser, CSSRules};
 use crate::parser::html_node::HTMLNodeRef;
-use crate::parser::html_parser::{HTMLParser, get_links};
+use crate::parser::html_parser::{get_links, HTMLParser};
 use crate::parser::selector::cascade_priority;
 use crate::parser::style::style;
 use gl_rs as gl;
@@ -22,9 +22,10 @@ use raw_window_handle::HasWindowHandle;
 use skia_safe::gpu::gl::Format;
 use skia_safe::gpu::gl::FramebufferInfo;
 use skia_safe::gpu::gl::Interface;
-use skia_safe::gpu::{DirectContext, SurfaceOrigin, backend_render_targets};
-use skia_safe::{Color, ColorType, Paint, Surface, gpu};
+use skia_safe::gpu::{backend_render_targets, DirectContext, SurfaceOrigin};
+use skia_safe::{gpu, Color, ColorType, Paint, Surface};
 use std::ffi::CString;
+use std::io::Write;
 use std::num::NonZeroU32;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -64,7 +65,9 @@ impl Browser {
             nodes: None,
             document: None,
             display_list: Vec::new(),
-            default_style_sheet: CSSParser::new(include_str!("asset/browser.css")).parse(),
+            default_style_sheet: CSSParser::new(include_str!("asset/browser.css"))
+                .parse()
+                .unwrap_or(Vec::new()),
         }
     }
 
@@ -75,7 +78,6 @@ impl Browser {
         let Some(node) = &self.nodes else {
             return;
         };
-        // node.borrow().print_tree(0);
 
         let mut rules = self.default_style_sheet.clone();
 
@@ -84,18 +86,28 @@ impl Browser {
         for link in links.iter() {
             let style_url = url.resolve(&link);
             let body = style_url.request();
-            rules.extend(CSSParser::new(&body).parse());
+            if let Ok(new_rules) = CSSParser::new(&body).parse() {
+                rules.extend(new_rules);
+            }
         }
 
+        #[cfg(debug_assertions)]
+        self.print_rules(&rules);
+
         rules.sort_by_key(|rule| cascade_priority(rule));
+
         style(node.clone(), &rules);
+
+        #[cfg(debug_assertions)]
+        node.borrow().print_tree(0);
 
         let doc_rc = DocumentLayout::new(node.clone());
         self.document = Some(doc_rc.clone());
 
         doc_rc.borrow_mut().layout();
 
-        // doc_rc.borrow().print_tree(0);
+        #[cfg(debug_assertions)]
+        doc_rc.borrow().print_tree(0);
 
         self.display_list.clear();
 
@@ -105,14 +117,27 @@ impl Browser {
 
         self.paint_tree(block.clone());
 
-        // self.print_display_list();
+        #[cfg(debug_assertions)]
+        self.print_display_list();
 
         self.draw();
     }
 
+    #[cfg(debug_assertions)]
+    fn print_rules(&self, rules: &CSSRules) {
+        rules.iter().for_each(|rule| {
+            println!("Selector: {}    Body: {:?}", rule.0, rule.1);
+        });
+    }
+
+    #[cfg(debug_assertions)]
     fn print_display_list(&self) {
-        for item in &self.display_list {
-            println!("{}", item);
+        if let Ok(file) = std::fs::File::create(std::path::Path::new("log/display_list.txt")) {
+            let mut writer = std::io::BufWriter::new(file);
+
+            for item in &self.display_list {
+                let _ = writeln!(writer, "{}", item);
+            }
         }
     }
 

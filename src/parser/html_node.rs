@@ -60,6 +60,7 @@ impl HTMLNode {
         }))
     }
 
+    #[cfg(debug_assertions)]
     pub fn print_tree(&self, depth: usize) {
         let indent = "  ".repeat(depth);
 
@@ -83,7 +84,7 @@ impl HTMLNode {
 impl Display for HTMLNode {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match &self.data {
-            HTMLNodeData::Text(t) => write!(f, "{}", t.text),
+            HTMLNodeData::Text(t) => write!(f, "text={} style={:?}", t.text, self.style),
             HTMLNodeData::Element(e) => {
                 let mut attrs_vec: Vec<_> = e.attributes.iter().collect();
                 attrs_vec.sort_by_key(|(k, _)| *k);
@@ -94,9 +95,9 @@ impl Display for HTMLNode {
                 }
 
                 if self.is_self_closing_tag {
-                    write!(f, "<{}{}/>", e.tag, attr_str)
+                    write!(f, "<{}{}/> style={:?}", e.tag, attr_str, self.style)
                 } else {
-                    write!(f, "<{}{}>", e.tag, attr_str)
+                    write!(f, "<{}{}> style={:?}", e.tag, attr_str, self.style)
                 }
             }
         }

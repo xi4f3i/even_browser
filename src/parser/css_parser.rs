@@ -1,5 +1,5 @@
 use crate::constant::common::{
-    CLOSING_BRACE, COLON, DASH, DOT, HASH, OPENING_BRACE, PERCENT, SEMICOLON,
+    CLOSING_BRACE, COLON, DASH, DOT, HASH, OPENING_BRACE, PERCENT, SEMICOLON, SLASH,
 };
 use crate::parser::selector::Selector;
 use std::collections::HashMap;
@@ -21,9 +21,45 @@ impl CSSParser {
         Self { chars, idx: 0 }
     }
 
-    fn whitespace(&mut self) {
+    fn whitespace(&mut self) -> bool {
+        let mut flag = false;
+
         while self.idx < self.chars.len() && self.chars[self.idx].is_whitespace() {
             self.idx += 1;
+            flag = true;
+        }
+
+        flag
+    }
+
+    fn comment(&mut self) -> bool {
+        let mut flag = false;
+
+        if self.idx + 1 >= self.chars.len() {
+            return flag;
+        }
+
+        if self.chars[self.idx] == SLASH && self.chars[self.idx + 1] == '*' {
+            while self.idx + 1 < self.chars.len() {
+                if self.chars[self.idx] == '*' && self.chars[self.idx + 1] == SLASH {
+                    self.idx += 2;
+                    flag = true;
+                    break;
+                }
+                self.idx += 1;
+            }
+        }
+
+        flag
+    }
+
+    fn comment_and_whitespace(&mut self) {
+        while self.idx < self.chars.len() {
+            let f1 = self.whitespace();
+            let f2 = self.comment();
+            if !f1 && !f2 {
+                break;
+            }
         }
     }
 
@@ -71,9 +107,9 @@ impl CSSParser {
     // (property, value)
     fn pair(&mut self) -> Result<(String, String), CSSParserError> {
         let property = self.word()?;
-        self.whitespace();
+        self.comment_and_whitespace();
         self.literal(COLON)?;
-        self.whitespace();
+        self.comment_and_whitespace();
         let value = self.word()?;
         Ok((property.to_lowercase(), value))
     }
@@ -94,13 +130,13 @@ impl CSSParser {
     fn pair_sequence(&mut self, pairs: &mut CSSRuleBody) -> Result<(), CSSParserError> {
         let (property, value) = self.pair()?;
         pairs.insert(property, value);
-        self.whitespace();
+        self.comment_and_whitespace();
         self.literal(SEMICOLON)?;
-        self.whitespace();
+        self.comment_and_whitespace();
         Ok(())
     }
 
-    pub fn body(&mut self) -> CSSRuleBody {
+    pub fn body(&mut self) -> Result<CSSRuleBody, CSSParserError> {
         let mut pairs = HashMap::new();
 
         while self.idx < self.chars.len() && self.chars[self.idx] != CLOSING_BRACE {
@@ -112,13 +148,8 @@ impl CSSParser {
                     if let Some(why) = self.ignore_until(&[SEMICOLON, CLOSING_BRACE])
                         && why == SEMICOLON
                     {
-                        match self.literal(SEMICOLON) {
-                            Ok(_) => {}
-                            Err(msg) => {
-                                println!("{}", msg);
-                            }
-                        };
-                        self.whitespace();
+                        self.literal(SEMICOLON)?;
+                        self.comment_and_whitespace();
                     } else {
                         break;
                     }
@@ -126,35 +157,35 @@ impl CSSParser {
             }
         }
 
-        pairs
+        Ok(pairs)
     }
 
     fn selector(&mut self) -> Result<Selector, CSSParserError> {
         let mut out = Selector::new_tag(self.word()?.to_lowercase());
 
-        self.whitespace();
+        self.comment_and_whitespace();
 
         while self.idx < self.chars.len() && self.chars[self.idx] != OPENING_BRACE {
             let tag = self.word()?;
             let descendant = Selector::new_tag(tag.to_lowercase());
             out = Selector::new_descendant(out, descendant);
-            self.whitespace();
+            self.comment_and_whitespace();
         }
 
         Ok(out)
     }
 
     fn parse_sequence(&mut self) -> Result<CSSRule, CSSParserError> {
-        self.whitespace();
+        self.comment_and_whitespace();
         let selector = self.selector()?;
         self.literal(OPENING_BRACE)?;
-        self.whitespace();
-        let body = self.body();
+        self.comment_and_whitespace();
+        let body = self.body()?;
         self.literal(CLOSING_BRACE)?;
         Ok((selector, body))
     }
 
-    pub fn parse(&mut self) -> CSSRules {
+    pub fn parse(&mut self) -> Result<CSSRules, CSSParserError> {
         let mut rules = vec![];
 
         while self.idx < self.chars.len() {
@@ -167,13 +198,8 @@ impl CSSParser {
                     if let Some(why) = self.ignore_until(&[CLOSING_BRACE])
                         && why == CLOSING_BRACE
                     {
-                        match self.literal(CLOSING_BRACE) {
-                            Ok(_) => {}
-                            Err(msg) => {
-                                println!("{}", msg);
-                            }
-                        };
-                        self.whitespace();
+                        self.literal(CLOSING_BRACE)?;
+                        self.comment_and_whitespace();
                     } else {
                         break;
                     }
@@ -181,6 +207,6 @@ impl CSSParser {
             }
         }
 
-        rules
+        Ok(rules)
     }
 }

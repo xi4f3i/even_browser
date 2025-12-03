@@ -39,6 +39,7 @@ impl DocumentLayout {
         self.height = child_rc.borrow().height;
     }
 
+    #[cfg(debug_assertions)]
     pub fn print_tree(&self, depth: usize) {
         let indent = "  ".repeat(depth);
 

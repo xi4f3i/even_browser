@@ -1,7 +1,8 @@
 use crate::constant::layout::{DEFAULT_WIDTH, DEFAULT_X, DEFAULT_Y};
 use crate::constant::style::{
     BACKGROUND_COLOR_DEFAULT_VALUE, DEFAULT_COLOR_STR, DEFAULT_FONT_SIZE_NUM,
-    STYLE_KEY_BACKGROUND_COLOR, STYLE_KEY_COLOR,
+    STYLE_KEY_BACKGROUND_COLOR, STYLE_KEY_COLOR, STYLE_KEY_FONT_SIZE, STYLE_KEY_FONT_STYLE,
+    STYLE_KEY_FONT_WEIGHT,
 };
 use crate::layout::draw_command::DrawCommand;
 use crate::layout::font_manager::{
@@ -30,7 +31,7 @@ pub type BlockLayoutWeakRef = Weak<RefCell<BlockLayout>>;
 
 #[derive(Debug)]
 pub struct BlockLayout {
-    node: Rc<RefCell<HTMLNode>>,
+    pub node: Rc<RefCell<HTMLNode>>,
     parent: Option<BlockLayoutWeakRef>,
     previous: Option<BlockLayoutWeakRef>,
     pub children: Vec<BlockLayoutRef>,
@@ -166,9 +167,9 @@ impl BlockLayout {
     }
 
     fn word(&mut self, word: &str, node: HTMLNodeRef) {
-        let weight = parse_font_weight(node.borrow().style.get("font-weight"));
-        let style = parse_font_style(node.borrow().style.get("font-style"));
-        let size = parse_font_size(node.borrow().style.get("font-size"));
+        let weight = parse_font_weight(node.borrow().style.get(STYLE_KEY_FONT_WEIGHT));
+        let style = parse_font_style(node.borrow().style.get(STYLE_KEY_FONT_STYLE));
+        let size = parse_font_size(node.borrow().style.get(STYLE_KEY_FONT_SIZE));
         let font = self.font_manager.borrow_mut().get_font(size, weight, style);
 
         // Bounding Box
@@ -188,6 +189,7 @@ impl BlockLayout {
             .style
             .get(STYLE_KEY_COLOR)
             .map_or(DEFAULT_COLOR_STR.to_string(), |c| c.to_string());
+
         self.line
             .push((self.cursor_x, word.to_string(), font, color));
 
