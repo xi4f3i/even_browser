@@ -98,7 +98,7 @@ pub fn parse_font_style(style: Option<&String>) -> Slant {
 
 pub fn parse_font_size(size: Option<&String>) -> i32 {
     size.map(|s| s.trim_end_matches(UNIT_PIXEL))
-        .and_then(|s| s.parse::<i32>().ok())
-        // .map(|v| (v * 0.75) as i32)
+        .and_then(|s| s.parse::<f32>().ok())
+        .map(|f| f.round() as i32)
         .unwrap_or(DEFAULT_FONT_SIZE_NUM)
 }
