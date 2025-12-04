@@ -83,9 +83,17 @@ fn add_text(tree: &mut DOMTree, unfinished: &mut Vec<NodeID>, text: String) {
 fn add_element_or_comment(tree: &mut DOMTree, unfinished: &mut Vec<NodeID>, text: String) {
     if text.starts_with("!--") && text.ends_with("--") && text.len() >= 5 {
         add_comment(tree, unfinished, text);
+    } else if text.starts_with("!DOCTYPE") {
+        add_doc_type(tree, unfinished, text);
     } else {
         add_element(tree, unfinished, text);
     }
+}
+
+fn add_doc_type(tree: &mut DOMTree, unfinished: &mut Vec<NodeID>, text: String) {
+    let doc_type = text.trim_start_matches("!DOCTYPE").to_string();
+    let parent_id = unfinished.last().copied();
+    tree.add_doc_type(parent_id, doc_type);
 }
 
 fn add_element(tree: &mut DOMTree, unfinished: &mut Vec<NodeID>, text: String) {
