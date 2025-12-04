@@ -1,11 +1,12 @@
 use crate::constant::browser::{DEFAULT_BROWSER_PADDING, HEIGHT, SCROLL_STEP, WIDTH};
+use crate::html::parser::parse_html;
 use crate::layout::block_layout::BlockLayoutRef;
 use crate::layout::document_layout::{DocumentLayout, DocumentLayoutRef};
 use crate::layout::draw_command::DrawCommand;
 use crate::net::url::URL;
 use crate::parser::css_parser::{CSSParser, CSSRules};
 use crate::parser::html_node::HTMLNodeRef;
-use crate::parser::html_parser::{get_links, HTMLParser};
+use crate::parser::html_parser::{HTMLParser, get_links};
 use crate::parser::selector::cascade_priority;
 use crate::parser::style::style;
 use gl_rs as gl;
@@ -22,8 +23,8 @@ use raw_window_handle::HasWindowHandle;
 use skia_safe::gpu::gl::Format;
 use skia_safe::gpu::gl::FramebufferInfo;
 use skia_safe::gpu::gl::Interface;
-use skia_safe::gpu::{backend_render_targets, DirectContext, SurfaceOrigin};
-use skia_safe::{gpu, Color, ColorType, Paint, Surface};
+use skia_safe::gpu::{DirectContext, SurfaceOrigin, backend_render_targets};
+use skia_safe::{Color, ColorType, Paint, Surface, gpu};
 use std::ffi::CString;
 use std::io::Write;
 use std::num::NonZeroU32;
@@ -73,6 +74,8 @@ impl Browser {
 
     pub fn load(&mut self, url: &URL) {
         let body = url.request();
+        let tree = parse_html(&body);
+        tree.print();
         self.nodes = HTMLParser::new(body).parse();
 
         let Some(node) = &self.nodes else {
