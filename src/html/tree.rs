@@ -7,7 +7,6 @@ use std::io::Write;
 pub struct DOMTree {
     nodes: Vec<Node>,
     pub root: Option<NodeID>,
-    doc_type: Option<NodeID>,
 }
 
 impl DOMTree {
@@ -15,19 +14,7 @@ impl DOMTree {
         Self {
             nodes: Vec::new(),
             root: None,
-            doc_type: None,
         }
-    }
-
-    pub fn add_doc_type(&mut self, parent_id: Option<NodeID>, doc_type: String) -> NodeID {
-        let id = self.nodes.len();
-        let comment = Node::new_doc_type(id, parent_id, doc_type);
-
-        self.append_node(comment);
-
-        self.doc_type = Some(id);
-
-        id
     }
 
     pub fn add_comment(&mut self, parent_id: Option<NodeID>, comment: String) -> NodeID {
@@ -82,11 +69,6 @@ impl DOMTree {
             .open("log/dom_tree.html")
             && let Some(id) = self.root
         {
-            if let Some(doc_type_id) = self.doc_type
-                && let Some(doc_type) = self.get_node(doc_type_id)
-            {
-                let _ = writeln!(&file, "{}", doc_type);
-            }
             self.print_node(id, 0, &file);
         }
     }

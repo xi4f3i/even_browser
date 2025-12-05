@@ -12,7 +12,6 @@ pub enum NodeData {
     Comment(String),
     Text(String),
     Element(Element),
-    DocumentType(String),
 }
 
 pub type NodeID = usize;
@@ -26,15 +25,6 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn new_doc_type(id: NodeID, parent: Option<NodeID>, doc_type: String) -> Self {
-        Self {
-            id,
-            parent,
-            children: Vec::new(),
-            data: NodeData::DocumentType(doc_type),
-        }
-    }
-
     pub fn new_comment(id: NodeID, parent: Option<NodeID>, comment: String) -> Self {
         Self {
             id,
@@ -102,11 +92,7 @@ impl std::fmt::Display for Element {
 
         let mut attr_str = String::new();
         for (k, v) in attrs_vec {
-            if v.is_empty() {
-                attr_str.push_str(&format!(" {}", k));
-            } else {
-                attr_str.push_str(&format!(" {}=\"{}\"", k, v));
-            }
+            attr_str.push_str(&format!(" {}=\"{}\"", k, v));
         }
 
         if self.is_self_closing {
@@ -123,7 +109,6 @@ impl std::fmt::Display for Node {
             NodeData::Comment(comment) => write!(f, "<!--{}-->", comment),
             NodeData::Text(text) => write!(f, "{}", text),
             NodeData::Element(element) => write!(f, "{}", element),
-            NodeData::DocumentType(doc_type) => write!(f, "<!DOCTYPE{}>", doc_type),
         }
     }
 }
