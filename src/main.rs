@@ -6,7 +6,6 @@ mod constant;
 mod layout;
 mod net;
 mod parser;
-mod html;
 
 fn main() {
     let url_str = "https://browser.engineering/styles.html";
