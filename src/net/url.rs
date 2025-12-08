@@ -101,7 +101,6 @@ impl URL {
 
     fn handle_https_response(&self, mut tls_stream: native_tls::TlsStream<TcpStream>) -> String {
         let request = format!("GET {} HTTP/1.0\r\nHost: {}\r\n\r\n", self.path, self.host);
-        use std::io::Write;
 
         tls_stream.write_all(request.as_bytes()).unwrap();
         tls_stream.flush().unwrap();
