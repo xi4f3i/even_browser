@@ -12,12 +12,12 @@ pub const ATTRIBUTE_REL_VALUE_STYLESHEET: &str = "stylesheet";
 pub const ATTRIBUTE_KEY_HREF: &str = "href";
 
 pub const SELF_CLOSING_ELEMENTS: [&str; 14] = [
-    "area", "base", "br", "col", "embed", "hr", "img", "input", LINK, "meta", "param", "source",
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
     "track", "wbr",
 ];
 
 pub const HEAD_ELEMENTS: [&str; 9] = [
-    "base", "basefont", "bgsound", "noscript", LINK, "meta", "title", STYLE, "script",
+    "base", "basefont", "bgsound", "noscript", "link", "meta", "title", "style", "script",
 ];
 
 pub const BLOCK_ELEMENTS: [&str; 37] = [
