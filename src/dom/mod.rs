@@ -3,5 +3,5 @@ mod document;
 mod element;
 mod html;
 mod named_node_map;
-mod node;
+pub(crate) mod node;
 mod text;
