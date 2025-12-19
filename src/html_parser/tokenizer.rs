@@ -118,7 +118,7 @@ impl Tokenizer {
                         // Switch to the data state.
                         // Emit the current tag token.
                         self.state = State::Data;
-                        return self.emit_tag();
+                        return self.emit_tag_token();
                     }
                     Some(ch) => {
                         // Append the current input character to the current tag token's tag name.
@@ -138,6 +138,195 @@ impl Tokenizer {
                         return Token::EOF;
                     }
                 },
+                // https://html.spec.whatwg.org/multipage/parsing.html#before-attribute-name-state
+                State::BeforeAttributeName => match c {
+                    Some(ch) if ch.is_whitespace() => {
+                        // Ignore the character.
+                    }
+                    Some('/') | Some('>') | None => {
+                        // Reconsume in the after attribute name state.
+                        self.state = State::AfterAttributeName;
+                        self.reconsume_char = c;
+                    }
+                    Some('=') => {
+                        // This is an unexpected-equals-sign-before-attribute-name parse error.
+                        // Start a new attribute in the current tag token.
+                        // Set that attribute's name to the current input character, and its value to the empty string.
+                        // Switch to the attribute name state.
+                        if let Some(t) = self.current_token.as_mut()
+                            && let Token::StartTag(tag) = t
+                        {
+                            tag.attributes.push(Attribute {
+                                name: String::from("="),
+                                value: String::new(),
+                            });
+                        }
+                        self.state = State::AttributeName;
+                    }
+                    Some(ch) => {
+                        // Start a new attribute in the current tag token.
+                        // Set that attribute name and value to the empty string.
+                        // Reconsume in the attribute name state.
+                        if let Some(t) = self.current_token.as_mut()
+                            && let Token::StartTag(tag) = t
+                        {
+                            tag.attributes.push(Attribute {
+                                name: String::new(),
+                                value: String::new(),
+                            });
+                        }
+                        self.state = State::AttributeName;
+                        self.reconsume_char = Some(ch);
+                    }
+                },
+                // https://html.spec.whatwg.org/multipage/parsing.html#attribute-name-state
+                State::AttributeName => match c {
+                    Some('\t') | Some('\n') | Some('\x0C') | Some(' ') | Some('/') | Some('>')
+                    | None => {
+                        // Reconsume in the after attribute name state.
+                        self.state = State::AfterAttributeName;
+                        self.reconsume_char = c;
+                    }
+                    Some('=') => {
+                        // Switch to the before attribute value state.
+                        self.state = State::BeforeAttributeValue;
+                    }
+                    Some('\'') | Some('"') | Some('<') => {
+                        // This is an unexpected-character-in-attribute-name parse error.
+                        // Treat it as per the "anything else" entry below.
+                        if let Some(t) = self.current_token.as_mut()
+                            && let Token::StartTag(tag) = t
+                            && let Some(attr) = tag.attributes.last().as_mut()
+                        {
+                            attr.name
+                                .push(c.expect("State::AttributeName  c is invalid"));
+                        }
+                    }
+                    Some('\0') => {
+                        // This is an unexpected-null-character parse error.
+                        // Append a U+FFFD REPLACEMENT CHARACTER character to the current attribute's name.
+                        if let Some(t) = self.current_token.as_mut()
+                            && let Token::StartTag(tag) = t
+                            && let Some(attr) = tag.attributes.last().as_mut()
+                        {
+                            attr.name.push('\u{FFFD}');
+                        }
+                    }
+                    Some(ch) => {
+                        // Append the current input character to the current attribute's name.
+                        // Append the lowercase version of the current input character (add 0x0020 to the character's code point) to the current attribute's name.
+                        if let Some(t) = self.current_token.as_mut()
+                            && let Token::StartTag(tag) = t
+                            && let Some(attr) = tag.attributes.last().as_mut()
+                        {
+                            attr.name.push(ch.to_ascii_lowercase());
+                        }
+                    }
+                },
+                // https://html.spec.whatwg.org/multipage/parsing.html#after-attribute-name-state
+                State::AfterAttributeName => match c {
+                    Some(ch) if ch.is_whitespace() => {
+                        // Ignore the character.
+                    }
+                    Some('/') => {
+                        // Switch to the self-closing start tag state.
+                        self.state = State::SelfClosingStartTag;
+                    }
+                    Some('=') => {
+                        // Switch to the before attribute value state.
+                        self.state = State::BeforeAttributeValue;
+                    }
+                    Some('>') => {
+                        // Switch to the data state.
+                        // Emit the current tag token.
+                        self.state = State::Data;
+                        self.emit_tag_token();
+                    }
+                    None => {
+                        // This is an eof-in-tag parse error.
+                        // Emit an end-of-file token.
+                        return Token::EOF;
+                    }
+                    Some(ch) => {
+                        // Start a new attribute in the current tag token.
+                        // Set that attribute name and value to the empty string.
+                        // Reconsume in the attribute name state.
+                        if let Some(t) = self.current_token.as_mut()
+                            && let Token::StartTag(tag) = t
+                        {
+                            tag.attributes.push(Attribute {
+                                name: String::new(),
+                                value: String::new(),
+                            });
+                        }
+                        self.state = State::AttributeName;
+                        self.reconsume_char = Some(ch);
+                    }
+                },
+                // https://html.spec.whatwg.org/multipage/parsing.html#before-attribute-value-state
+                State::BeforeAttributeValue => match c {
+                    Some(ch) if ch.is_whitespace() => {
+                        // Ignore the character.
+                    }
+                    Some('"') => {
+                        // Switch to the attribute value (double-quoted) state.
+                        self.state = State::AttributeValueDoubleQuoted;
+                    }
+                    Some('\'') => {
+                        // Switch to the attribute value (double-quoted) state.
+                        self.state = State::AttributeValueSingleQuoted;
+                    }
+                    Some('>') => {
+                        // This is a missing-attribute-value parse error.
+                        // Switch to the data state.
+                        // Emit the current tag token.
+                    }
+                    Some(ch) => {
+                        // Reconsume in the attribute value (unquoted) state.
+                        self.state = State::AttributeValueUnquoted;
+                        self.reconsume_char = Some(ch);
+                    }
+                    None => {
+                        // Reconsume in the attribute value (unquoted) state.
+                        self.state = State::AttributeValueUnquoted;
+                        self.reconsume_char = None;
+                    }
+                },
+                // https://html.spec.whatwg.org/multipage/parsing.html#attribute-value-(double-quoted)-state
+                State::AttributeValueDoubleQuoted => match c {
+                    Some('"') => {
+                        // Switch to the after attribute value (quoted) state.
+                        self.state = State::AfterAttributeValueQuoted;
+                    }
+                    // Some('&') => {
+                    // Set the return state to the attribute value (double-quoted) state.
+                    // Switch to the character reference state.
+                    // }
+                    Some('\0') => {
+                        // This is an unexpected-null-character parse error.
+                        // Append a U+FFFD REPLACEMENT CHARACTER character to the current attribute's value.
+                        if let Some(t) = self.current_token.as_mut()
+                            && let Token::StartTag(tag) = t
+                            && let Some(attr) = tag.attributes.last().as_mut()
+                        {
+                            attr.value.push('\u{FFFD}');
+                        }
+                    }
+                    None => {
+                        // This is an eof-in-tag parse error.
+                        // Emit an end-of-file token.
+                        return Token::EOF;
+                    }
+                    Some(ch) => {
+                        // Append the current input character to the current attribute's value.
+                        if let Some(t) = self.current_token.as_mut()
+                            && let Token::StartTag(tag) = t
+                            && let Some(attr) = tag.attributes.last().as_mut()
+                        {
+                            attr.value.push(ch);
+                        }
+                    }
+                },
                 // https://html.spec.whatwg.org/multipage/parsing.html#self-closing-start-tag-state
                 State::SelfClosingStartTag => match c {
                     Some('>') => {
@@ -150,7 +339,7 @@ impl Tokenizer {
                             tag.self_closing = true;
                         }
                         self.state = State::Data;
-                        return self.emit_tag();
+                        return self.emit_tag_token();
                     }
                     None => {
                         // This is an eof-in-tag parse error.
@@ -168,9 +357,15 @@ impl Tokenizer {
         }
     }
 
-    fn emit_tag(&mut self) -> Token {
+    fn emit_tag_token(&mut self) -> Token {
         self.current_token
             .take()
             .expect("tokenizer.current_tag is invalid")
     }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test() {}
 }
