@@ -1,6 +1,6 @@
 use crate::{
     dom::node::{Node, NodeBox, NodePtr},
-    html_parser::tokenizer::Tokenizer,
+    html_parser_backup::tokenizer::Tokenizer,
 };
 
 /// https://html.spec.whatwg.org/multipage/parsing.html
