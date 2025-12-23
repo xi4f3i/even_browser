@@ -416,7 +416,7 @@ impl Tokenizer {
                         // TODO: 1. U+0026 AMPERSAND (&) - Set the return state to the attribute value (double-quoted) state. Switch to the character reference state. 2. U+0000 NULL - This is an unexpected-null-character parse error. Append a U+FFFD REPLACEMENT CHARACTER character to the current attribute's value.
                         _ => {
                             // Append the current input character to the current attribute's value.
-                            self.cur_tag.borrow_mut().attributes.last_mut().expect("[State::AttributeValue(AttrValueKind::DoubleQuoted)] last attribute is invalid").value.push(ch);
+                            self.cur_tag.borrow_mut().attributes.last_mut().expect("[State::AttributeValue(AttrValueKind::SingleQuoted)] last attribute is invalid").value.push(ch);
                         }
                     },
                     None => {
