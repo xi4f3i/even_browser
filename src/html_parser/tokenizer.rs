@@ -65,7 +65,7 @@ enum State {
     BeforeAttributeValue,
     AttributeValue(AttrValueKind),
     AfterAttributeValueQuoted,
-    EngTagOpen,
+    EndTagOpen,
     MarkupDeclarationOpen,
     CommentStart,
     Comment,
@@ -148,7 +148,7 @@ impl Tokenizer {
                         }
                         '/' => {
                             // Switch to the end tag open state.
-                            self.state.set(State::EngTagOpen);
+                            self.state.set(State::EndTagOpen);
                         }
                         '?' => {
                             // This is an unexpected-question-mark-instead-of-tag-name parse error.
@@ -184,7 +184,7 @@ impl Tokenizer {
                     }
                 },
                 // https://html.spec.whatwg.org/multipage/parsing.html#end-tag-open-state
-                State::EngTagOpen => match c {
+                State::EndTagOpen => match c {
                     Some(ch) => match ch {
                         '>' => {
                             // This is a missing-end-tag-name parse error. Switch to the data state.
@@ -770,7 +770,7 @@ mod tests {
 
     #[test]
     fn test_eof_in_tag_edge_case() {
-        // 测试 State::EngTagOpen 中的 EOF 处理逻辑
+        // 测试 State::EndTagOpen 中的 EOF 处理逻辑
         // 输入 "</"，期望输出 Token('<'), Token('/'), Token(EOF)
         let tokens = collect_tokens("</");
         assert_eq!(
