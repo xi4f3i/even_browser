@@ -31,6 +31,13 @@ enum Token {
 }
 
 #[derive(Debug, Copy, Clone)]
+enum AttrValueKind {
+    Unquoted,
+    SingleQuoted,
+    DoubleQuoted,
+}
+
+#[derive(Debug, Copy, Clone)]
 enum State {
     Data,
     TagOpen,
@@ -40,6 +47,7 @@ enum State {
     AttributeName,
     AfterAttributeName,
     BeforeAttributeValue,
+    AttributeValue(AttrValueKind),
     EngTagOpen,
     BogusComment,
     MarkupDeclarationOpen,
@@ -246,6 +254,74 @@ impl Tokenizer {
                         self.state.set(State::AfterAttributeName);
                     }
                 },
+                State::AfterAttributeName => match c {
+                    Some(ch) => match ch {
+                        '\t' | '\n' | '\x0C' | ' ' => {
+                            // Ignore the character.
+                        }
+                        '/' => {
+                            // Switch to the self-closing start tag state.
+                            self.state.set(State::SelfClosingStartTag);
+                        }
+                        '=' => {
+                            // Switch to the before attribute value state.
+                            self.state.set(State::BeforeAttributeValue);
+                        }
+                        '>' => {
+                            // Switch to the data state. Emit the current tag token.
+                            self.state.set(State::Data);
+                            return self.emit_tag();
+                        }
+                        _ => {
+                            // Start a new attribute in the current tag token.
+                            // Set that attribute name and value to the empty string.
+                            // Reconsume in the attribute name state.
+                            self.create_attr(None);
+                            self.reconsume.set(true);
+                            self.state.set(State::AttributeName);
+                        }
+                    },
+                    None => {
+                        // This is an eof-in-tag parse error. Emit an end-of-file token.
+                        return Token::EOF;
+                    }
+                },
+                State::BeforeAttributeValue => match c {
+                    Some(ch) => match ch {
+                        '\t' | '\n' | '\x0C' | ' ' => {
+                            // Ignore the character.
+                        }
+                        '"' => {
+                            // Switch to the attribute value (double-quoted) state.
+                            self.state
+                                .set(State::AttributeValue(AttrValueKind::DoubleQuoted));
+                        }
+                        '\'' => {
+                            // Switch to the attribute value (single-quoted) state.
+                            self.state
+                                .set(State::AttributeValue(AttrValueKind::SingleQuoted));
+                        }
+                        '>' => {
+                            // This is a missing-attribute-value parse error.
+                            // Switch to the data state.
+                            // Emit the current tag token.
+                            self.state.set(State::Data);
+                            return self.emit_tag();
+                        }
+                        _ => {
+                            // Reconsume in the attribute value (unquoted) state.
+                            self.reconsume.set(true);
+                            self.state
+                                .set(State::AttributeValue(AttrValueKind::Unquoted));
+                        }
+                    },
+                    None => {
+                        // Reconsume in the attribute value (unquoted) state.
+                        self.reconsume.set(true);
+                        self.state
+                            .set(State::AttributeValue(AttrValueKind::Unquoted));
+                    }
+                },
             }
         }
     }
@@ -265,11 +341,16 @@ impl Tokenizer {
             kind,
             name: String::new(),
             self_closing: false,
-            attributes: vec![],
+            attributes: Vec::new(),
         };
     }
 
     fn emit_tag(&self) -> Token {
+        self.cur_tag
+            .borrow_mut()
+            .attributes
+            .retain(|attr| !attr.name.is_empty());
+
         Token::Tag(mem::take(self.cur_tag.borrow_mut().deref_mut()))
     }
 }
