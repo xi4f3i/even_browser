@@ -2,6 +2,8 @@ use std::cell::{Cell, RefCell};
 use std::mem;
 use std::ops::DerefMut;
 
+use crate::dom::attribute::Attribute;
+
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub(crate) enum TagKind {
     #[default]
@@ -9,21 +11,15 @@ pub(crate) enum TagKind {
     EndTag,
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
-pub(crate) struct Attribute {
-    name: String,
-    value: String,
-}
-
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct Tag {
-    kind: TagKind,
-    name: String,
-    self_closing: bool,
-    attributes: Vec<Attribute>,
+    pub(crate) kind: TagKind,
+    pub(crate) name: String,
+    pub(crate) self_closing: bool,
+    pub(crate) attributes: Vec<Attribute>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Token {
     Tag(Tag),
     Character(char),

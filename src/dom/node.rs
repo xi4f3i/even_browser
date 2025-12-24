@@ -1,4 +1,4 @@
-use std::ptr;
+use std::ptr::{self, NonNull};
 
 use crate::dom::{
     comment::Comment, document::Document, element::Element, named_node_map::NamedNodeMap,
@@ -84,6 +84,10 @@ impl Node {
 
     pub(crate) fn get_parent(&self) -> Option<&Node> {
         self.parent.map(|node_ptr| unsafe { node_ptr.as_ref() })
+    }
+
+    pub(crate) fn get_ptr(&mut self) -> NodePtr {
+        unsafe { NonNull::new_unchecked(self) }
     }
 
     /// TODO: https://developer.mozilla.org/en-US/docs/Web/API/Node/appendChild
