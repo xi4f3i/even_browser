@@ -1,6 +1,9 @@
 use std::ptr;
 
-use crate::dom::{document::Document, element::Element, named_node_map::NamedNodeMap, text::Text};
+use crate::dom::{
+    comment::Comment, document::Document, element::Element, named_node_map::NamedNodeMap,
+    text::Text,
+};
 
 pub(crate) type NodePtr = ptr::NonNull<Node>;
 pub(crate) type NodeBox = Box<Node>;
@@ -10,6 +13,7 @@ enum NodeSubtype {
     Document(Document),
     Element(Element),
     Text(Text),
+    Comment(Comment),
 }
 
 /// https://developer.mozilla.org/en-US/docs/Web/API/Node
@@ -46,6 +50,14 @@ impl Node {
             parent,
             children: Vec::new(),
             subtype: NodeSubtype::Text(Text::new(data)),
+        })
+    }
+
+    pub(crate) fn new_comment(parent: Option<NodePtr>, data: &str) -> NodeBox {
+        Box::new(Node {
+            parent,
+            children: Vec::new(),
+            subtype: NodeSubtype::Comment(Comment::new(data)),
         })
     }
 
@@ -90,6 +102,7 @@ impl std::fmt::Display for Node {
             NodeSubtype::Document(_) => write!(f, "#document"),
             NodeSubtype::Element(e) => write!(f, "#{}", e.tag_name()),
             NodeSubtype::Text(t) => write!(f, "#text: {}", t.data()),
+            NodeSubtype::Comment(c) => write!(f, "#comment: {}", c.data()),
         }
     }
 }

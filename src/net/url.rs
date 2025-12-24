@@ -5,21 +5,21 @@ use crate::constant::common::{COLON, SLASH};
 use crate::constant::net::{HTTP, HTTPS};
 
 #[derive(Debug)]
-pub struct URL {
+pub struct Url {
     pub scheme: String,
     pub host: String,
     pub port: u16,
     pub path: String,
 }
 
-impl URL {
+impl Url {
     pub fn new(url_str: &str) -> Self {
-        match URL::parse_url(url_str) {
+        match Url::parse_url(url_str) {
             Ok(url) => url,
             Err(_) => {
                 eprintln!("Malformed URL found, falling back to the WBE home page.");
                 eprintln!("  URL was: {}", url_str);
-                URL {
+                Url {
                     scheme: HTTPS.to_string(),
                     host: "browser.engineering".to_string(),
                     port: 443,
@@ -69,7 +69,7 @@ impl URL {
             (host_part, default_port)
         };
 
-        Ok(URL {
+        Ok(Url {
             scheme,
             host,
             port,
@@ -146,9 +146,9 @@ impl URL {
         content
     }
 
-    pub fn resolve(&self, url_str: &str) -> URL {
+    pub fn resolve(&self, url_str: &str) -> Url {
         if url_str.contains("://") {
-            return URL::new(url_str);
+            return Url::new(url_str);
         }
 
         let mut url = url_str.to_string();
@@ -173,14 +173,14 @@ impl URL {
         }
 
         if url.starts_with("//") {
-            return URL::new(&format!("{}:{}", self.scheme, url));
+            return Url::new(&format!("{}:{}", self.scheme, url));
         }
 
-        URL::new(&format!("{}://{}:{}{}", self.scheme, self.host, self.port, url))
+        Url::new(&format!("{}://{}:{}{}", self.scheme, self.host, self.port, url))
     }
 }
 
-impl std::fmt::Display for URL {
+impl std::fmt::Display for Url {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,

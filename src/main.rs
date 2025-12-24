@@ -1,5 +1,5 @@
 use crate::browser::Browser;
-use net::url::URL;
+use net::url::Url;
 
 mod browser;
 mod constant;
@@ -11,7 +11,7 @@ mod parser;
 
 fn main() {
     let url_str = "https://browser.engineering/styles.html";
-    let url = URL::new(url_str);
+    let url = Url::new(url_str);
     let mut browser = Browser::new();
     browser.load(&url);
     browser.run();

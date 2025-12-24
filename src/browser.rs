@@ -2,7 +2,7 @@ use crate::constant::browser::{DEFAULT_BROWSER_PADDING, HEIGHT, SCROLL_STEP, WID
 use crate::layout::block_layout::BlockLayoutRef;
 use crate::layout::document_layout::{DocumentLayout, DocumentLayoutRef};
 use crate::layout::draw_command::DrawCommand;
-use crate::net::url::URL;
+use crate::net::url::Url;
 use crate::parser::css_parser::{CSSParser, CSSRules};
 use crate::parser::html_node::HTMLNodeRef;
 use crate::parser::html_parser::{get_links, HTMLParser};
@@ -71,7 +71,7 @@ impl Browser {
         }
     }
 
-    pub fn load(&mut self, url: &URL) {
+    pub fn load(&mut self, url: &Url) {
         let body = url.request();
         self.nodes = HTMLParser::new(body).parse();
 

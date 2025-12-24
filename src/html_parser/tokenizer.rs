@@ -3,20 +3,20 @@ use std::mem;
 use std::ops::DerefMut;
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
-enum TagKind {
+pub(crate) enum TagKind {
     #[default]
     StartTag,
     EndTag,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
-struct Attribute {
+pub(crate) struct Attribute {
     name: String,
     value: String,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
-struct Tag {
+pub(crate) struct Tag {
     kind: TagKind,
     name: String,
     self_closing: bool,
@@ -24,7 +24,7 @@ struct Tag {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum Token {
+pub(crate) enum Token {
     Tag(Tag),
     Character(char),
     Comment(String),
@@ -73,7 +73,7 @@ enum State {
     BogusComment,
 }
 
-struct Tokenizer {
+pub(crate) struct Tokenizer {
     input: Vec<char>,
     pos: Cell<usize>,
     reconsume: Cell<bool>,
@@ -84,7 +84,7 @@ struct Tokenizer {
 }
 
 impl Tokenizer {
-    fn new(input: &str) -> Tokenizer {
+    pub(crate) fn new(input: &str) -> Tokenizer {
         Tokenizer {
             input: input.chars().collect(),
             pos: Cell::new(0),
@@ -113,7 +113,7 @@ impl Tokenizer {
         res
     }
 
-    fn next(&self) -> Token {
+    pub(crate) fn next(&self) -> Token {
         if let Some(token) = self.pending_tokens.borrow_mut().pop() {
             return token;
         }
