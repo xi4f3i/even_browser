@@ -9,7 +9,7 @@ pub(crate) type NodePtr = ptr::NonNull<Node>;
 pub(crate) type NodeBox = Box<Node>;
 
 #[derive(Debug)]
-enum NodeSubtype {
+pub(crate) enum NodeSubtype {
     Document(Document),
     Element(Element),
     Text(Text),
@@ -88,6 +88,22 @@ impl Node {
 
     pub(crate) fn get_ptr(&mut self) -> NodePtr {
         unsafe { NonNull::new_unchecked(self) }
+    }
+
+    pub(crate) fn subtype(&self) -> &NodeSubtype {
+        &self.subtype
+    }
+
+    pub(crate) fn subtype_mut(&mut self) -> &mut NodeSubtype {
+        &mut self.subtype
+    }
+
+    pub(crate) fn last_child(&self) -> Option<&Node> {
+        self.children.last().map(|node| node.as_ref())
+    }
+
+    pub(crate) fn last_child_mut(&mut self) -> Option<&mut Node> {
+        self.children.last_mut().map(|node| node.as_mut())
     }
 
     /// TODO: https://developer.mozilla.org/en-US/docs/Web/API/Node/appendChild

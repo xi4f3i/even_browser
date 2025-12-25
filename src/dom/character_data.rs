@@ -4,21 +4,25 @@ pub(crate) struct CharacterData {
 }
 
 impl CharacterData {
-    pub fn new(data: &str) -> CharacterData {
+    pub(crate) fn new(data: &str) -> CharacterData {
         CharacterData {
             data: data.to_string(),
         }
     }
 
-    pub fn data(&self) -> &str {
+    pub(crate) fn data(&self) -> &str {
         &self.data
     }
 
-    pub fn set_data(&mut self, data: String) {
+    pub(crate) fn set_data(&mut self, data: String) {
         self.data = data;
     }
 
-    pub fn length(&self) -> usize {
+    pub(crate) fn length(&self) -> usize {
         self.data.len()
+    }
+
+    pub(crate) fn push(&mut self, c: char) {
+        self.data.push(c);
     }
 }
