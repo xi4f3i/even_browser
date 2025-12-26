@@ -17,6 +17,8 @@ enum InsertionMode {
     InHead,
     AfterHead,
     InBody,
+    AfterBody,
+    AfterAfterBody,
     Text,
 }
 
@@ -39,6 +41,7 @@ pub(crate) struct HtmlParser {
     open_elements: Vec<NodePtr>,
     document: NodeBox,
     mode: Cell<InsertionMode>,
+    original_mode: Cell<InsertionMode>,
 }
 
 impl HtmlParser {
@@ -51,10 +54,11 @@ impl HtmlParser {
             open_elements,
             document,
             mode: Cell::new(InsertionMode::Initial),
+            original_mode: Cell::new(InsertionMode::Initial),
         }
     }
 
-    fn parse(self) -> Box<Node> {
+    fn parse(mut self) -> Box<Node> {
         loop {
             let token = self.tokenizer.next();
 
@@ -67,7 +71,7 @@ impl HtmlParser {
         self.document
     }
 
-    fn process_token(&self, mut token: Token) -> ProcessResult {
+    fn process_token(&mut self, mut token: Token) -> ProcessResult {
         loop {
             match self.step(self.mode.get(), token) {
                 StepResult::Done => {
@@ -91,7 +95,7 @@ impl HtmlParser {
         }
     }
 
-    fn step(&self, mode: InsertionMode, token: Token) -> StepResult {
+    fn step(&mut self, mode: InsertionMode, token: Token) -> StepResult {
         match mode {
             // https://html.spec.whatwg.org/multipage/parsing.html#the-initial-insertion-mode
             InsertionMode::Initial => match token {
@@ -140,11 +144,7 @@ impl HtmlParser {
                     if matches!(tag.kind, TagKind::StartTag) && tag.name == "html" {
                         // Create an element for the token in the HTML namespace, with the Document as the intended parent. Append it to the Document object. Put this element in the stack of open elements.
                         // Switch the insertion mode to "before head".
-                        let element = self.create_element_for_token(
-                            &tag.name,
-                            tag.attributes,
-                            tag.self_closing,
-                        );
+                        self.create_element_for_token(&tag.name, tag.attributes, tag.self_closing);
 
                         return StepResult::Consumed(Some(InsertionMode::BeforeHead));
                     }
@@ -157,9 +157,9 @@ impl HtmlParser {
                             || tag.name == "br")
                     {
                         // Act as described in the "anything else" entry below.
-                        let element = self.create_element_for_token("html", Vec::new(), false);
+                        self.create_element_for_token("html", Vec::new(), false);
 
-                        return StepResult::Reprocess(InsertionMode::BeforeHead, token);
+                        return StepResult::Reprocess(InsertionMode::BeforeHead, Token::Tag(tag));
                     }
 
                     // Any other end tag
@@ -170,7 +170,7 @@ impl HtmlParser {
                 _ => {
                     // Create an html element whose node document is the Document object. Append it to the Document object. Put this element in the stack of open elements.
                     // Switch the insertion mode to "before head", then reprocess the token.
-                    let element = self.create_element_for_token("html", Vec::new(), false);
+                    self.create_element_for_token("html", Vec::new(), false);
 
                     return StepResult::Reprocess(InsertionMode::BeforeHead, token);
                 } // The document element can end up being removed from the Document object, e.g. by scripts; nothing in particular happens in such cases, content continues being appended to the nodes as described in the next section.
@@ -198,7 +198,7 @@ impl HtmlParser {
                         // A start tag whose tag name is "html"
                         "html" => {
                             // Process the token using the rules for the "in body" insertion mode.
-                            return self.step(InsertionMode::InBody, token);
+                            return self.step(InsertionMode::InBody, Token::Tag(tag));
                         }
                         // A start tag whose tag name is "head"
                         "head" => {
@@ -214,7 +214,7 @@ impl HtmlParser {
                             // Switch the insertion mode to "in head".
                             // Reprocess the current token.
                             self.insert_html_element("head", Vec::new(), false);
-                            return StepResult::Reprocess(InsertionMode::InHead, token);
+                            return StepResult::Reprocess(InsertionMode::InHead, Token::Tag(tag));
                         }
                     },
                     TagKind::EndTag => match tag.name.as_str() {
@@ -222,7 +222,7 @@ impl HtmlParser {
                         "head" | "body" | "html" | "br" => {
                             // Act as described in the "anything else" entry below.
                             self.insert_html_element("head", Vec::new(), false);
-                            return StepResult::Reprocess(InsertionMode::InHead, token);
+                            return StepResult::Reprocess(InsertionMode::InHead, Token::Tag(tag));
                         }
                         _ => {
                             // Parse error. Ignore the token.
@@ -265,7 +265,7 @@ impl HtmlParser {
                         // A start tag whose tag name is "html"
                         "html" => {
                             // Process the token using the rules for the "in body" insertion mode.
-                            return self.step(InsertionMode::InBody, token);
+                            return self.step(InsertionMode::InBody, Token::Tag(tag));
                         }
                         // A start tag whose tag name is one of: "base", "basefont", "bgsound", "link"
                         "base" | "basefont" | "bgsound" | "link" => {
@@ -287,6 +287,7 @@ impl HtmlParser {
                             // Follow the generic RCDATA element parsing algorithm.
                             self.insert_html_element(&tag.name, tag.attributes, false);
                             // TODO: https://html.spec.whatwg.org/multipage/parsing.html#generic-rcdata-element-parsing-algorithm
+                            self.original_mode.set(InsertionMode::InHead);
                             return StepResult::Consumed(Some(InsertionMode::Text));
                         }
                         // A start tag whose tag name is "noscript", if the scripting flag is enabled
@@ -295,6 +296,7 @@ impl HtmlParser {
                             // Follow the generic raw text element parsing algorithm.
                             self.insert_html_element(&tag.name, tag.attributes, false);
                             // TODO: https://html.spec.whatwg.org/multipage/parsing.html#generic-raw-text-element-parsing-algorithm
+                            self.original_mode.set(InsertionMode::InHead);
                             return StepResult::Consumed(Some(InsertionMode::Text));
                         }
                         // TODO: A start tag whose tag name is "noscript", if the scripting flag is disabled
@@ -310,7 +312,7 @@ impl HtmlParser {
                             // Switch the insertion mode to "after head".
                             // Reprocess the token.
                             self.open_elements.pop();
-                            return StepResult::Reprocess(InsertionMode::AfterHead, token);
+                            return StepResult::Reprocess(InsertionMode::AfterHead, Token::Tag(tag));
                         }
                     },
                     TagKind::EndTag => match tag.name.as_str() {
@@ -325,7 +327,7 @@ impl HtmlParser {
                         "body" | "html" | "br" => {
                             // Act as described in the "anything else" entry below.
                             self.open_elements.pop();
-                            return StepResult::Reprocess(InsertionMode::AfterHead, token);
+                            return StepResult::Reprocess(InsertionMode::AfterHead, Token::Tag(tag));
                         }
                         // TODO: An end tag whose tag name is "template"
                         // Any other end tag
@@ -369,7 +371,7 @@ impl HtmlParser {
                         // A start tag whose tag name is "html"
                         "html" => {
                             // Process the token using the rules for the "in body" insertion mode.
-                            return self.step(InsertionMode::InBody, token);
+                            return self.step(InsertionMode::InBody, Token::Tag(tag));
                         }
                         // A start tag whose tag name is "body"
                         "body" => {
@@ -391,7 +393,7 @@ impl HtmlParser {
                             // Switch the insertion mode to "in body".
                             // Reprocess the current token.
                             self.insert_html_element("body", vec![], false);
-                            return StepResult::Reprocess(InsertionMode::InBody, token);
+                            return StepResult::Reprocess(InsertionMode::InBody, Token::Tag(tag));
                         }
                     },
                     TagKind::EndTag => match tag.name.as_str() {
@@ -403,7 +405,7 @@ impl HtmlParser {
                             // Switch the insertion mode to "in body".
                             // Reprocess the current token.
                             self.insert_html_element("body", vec![], false);
-                            return StepResult::Reprocess(InsertionMode::InBody, token);
+                            return StepResult::Reprocess(InsertionMode::InBody, Token::Tag(tag));
                         }
                         // Any other end tag
                         _ => {
@@ -423,7 +425,268 @@ impl HtmlParser {
             },
             // https://html.spec.whatwg.org/multipage/parsing.html#parsing-main-inbody
             InsertionMode::InBody => match token {
-                
+                // TODO: A character token that is U+0000 NULL - Parse error. Ignore the token.
+                Token::Character(c) => {
+                    if c == '\t' || c == '\n' || c == '\x0C' || c == '\r' || c == ' ' {
+                        // A character token that is one of U+0009 CHARACTER TABULATION, U+000A LINE FEED (LF), U+000C FORM FEED (FF), U+000D CARRIAGE RETURN (CR), or U+0020 SPACE
+                        // Reconstruct the active formatting elements, if any.
+                        // Insert the token's character.
+                    } else {
+                        // Any other character token
+                        // Reconstruct the active formatting elements, if any.
+                        // Insert the token's character.
+                        // TODO: Set the frameset-ok flag to "not ok".
+                    }
+                    self.insert_character(c);
+
+                    return StepResult::Consumed(None);
+                }
+                // A comment token
+                Token::Comment(c) => {
+                    // Insert a comment.
+                    self.insert_comment(&c);
+
+                    return StepResult::Consumed(None);
+                }
+                // TODO: A DOCTYPE token - Parse error. Ignore the token.
+                Token::Tag(tag) => match &tag.kind {
+                    TagKind::StartTag => match tag.name.as_str() {
+                        // A start tag whose tag name is "html"
+                        "html" => {
+                            // TODO: Parse error. If there is a template element on the stack of open elements, then ignore the token. Otherwise, for each attribute on the token, check to see if the attribute is already present on the top element of the stack of open elements. If it is not, add the attribute and its corresponding value to that element.
+                            return StepResult::Ignored;
+                        }
+                        // A start tag whose tag name is one of: "base", "basefont", "bgsound", "link", "meta", "noframes", "script", "style", "template", "title"
+                        "base" | "basefont" | "bgsound" | "link" | "meta" | "noframes"
+                        | "script" | "style" | "template" | "title" => {
+                            // Process the token using the rules for the "in head" insertion mode.
+                            return self.step(InsertionMode::InHead, Token::Tag(tag));
+                        }
+                        // A start tag whose tag name is "body"
+                        "body" => {
+                            // TODO: Parse error. If the stack of open elements has only one node on it, or if the second element on the stack of open elements is not a body element, or if there is a template element on the stack of open elements, then ignore the token. (fragment case or there is a template element on the stack) Otherwise, set the frameset-ok flag to "not ok"; then, for each attribute on the token, check to see if the attribute is already present on the body element (the second element) on the stack of open elements, and if it is not, add the attribute and its corresponding value to that element.
+                            return StepResult::Ignored;
+                        }
+                        // TODO: A start tag whose tag name is "frameset"
+                        // TODO: A start tag whose tag name is one of: "address", "article", "aside", "blockquote", "center", "details", "dialog", "dir", "div", "dl", "fieldset", "figcaption", "figure", "footer", "header", "hgroup", "main", "menu", "nav", "ol", "p", "search", "section", "summary", "ul"
+                        // TODO: A start tag whose tag name is one of: "h1", "h2", "h3", "h4", "h5", "h6"
+                        // TODO: A start tag whose tag name is one of: "pre", "listing"
+                        // TODO: A start tag whose tag name is "form"
+                        // TODO: A start tag whose tag name is "li"
+                        // TODO: A start tag whose tag name is one of: "dd", "dt"
+                        // TODO: A start tag whose tag name is "plaintext"
+                        // TODO: A start tag whose tag name is "button"
+                        // TODO: A start tag whose tag name is "a"
+                        // TODO: A start tag whose tag name is one of: "b", "big", "code", "em", "font", "i", "s", "small", "strike", "strong", "tt", "u"
+                        // TODO: A start tag whose tag name is "nobr"
+                        // TODO: A start tag whose tag name is one of: "applet", "marquee", "object"
+                        // TODO: A start tag whose tag name is "table"
+                        // TODO: A start tag whose tag name is one of: "area", "br", "embed", "img", "keygen", "wbr"
+                        // TODO: A start tag whose tag name is "input"
+                        // TODO: A start tag whose tag name is one of: "param", "source", "track"
+                        // TODO: A start tag whose tag name is "hr"
+                        // TODO: A start tag whose tag name is "image"
+                        // TODO: A start tag whose tag name is "textarea"
+                        // TODO: A start tag whose tag name is "xmp"
+                        // TODO: A start tag whose tag name is "iframe"
+                        // TODO: A start tag whose tag name is "noembed"
+                        // TODO: A start tag whose tag name is "noscrA start tag whose tag name is "noscript", if the scripting flag is enabledipt", if the scripting flag is enabled
+                        // TODO: A start tag whose tag name is "select"
+                        // TODO: A start tag whose tag name is "option"
+                        // TODO: A start tag whose tag name is "optgroup"
+                        // TODO: A start tag whose tag name is one of: "rb", "rtc"
+                        // TODO: A start tag whose tag name is one of: "rp", "rt"
+                        // TODO: A start tag whose tag name is "math"
+                        // TODO: A start tag whose tag name is "svg"
+                        // TODO: A start tag whose tag name is one of: "caption", "col", "colgroup", "frame", "head", "tbody", "td", "tfoot", "th", "thead", "tr"
+                        // Any other start tag
+                        _ => {
+                            // TODO: Reconstruct the active formatting elements, if any.
+                            // Insert an HTML element for the token.
+                            // This element will be an ordinary element. With one exception: if the scripting flag is disabled, it can also be a noscript element.
+                            self.insert_html_element(&tag.name, tag.attributes, tag.self_closing);
+                            return StepResult::Consumed(None);
+                        }
+                    },
+                    TagKind::EndTag => match tag.name.as_str() {
+                        // TODO: An end tag whose tag name is "template" - Process the token using the rules for the "in head" insertion mode.
+                        // An end tag whose tag name is "body"
+                        "body" => {
+                            // TODO: If the stack of open elements does not have a body element in scope, this is a parse error; ignore the token.
+                            // TODO: Otherwise, if there is a node in the stack of open elements that is not either a dd element, a dt element, an li element, an optgroup element, an option element, a p element, an rb element, an rp element, an rt element, an rtc element, a tbody element, a td element, a tfoot element, a th element, a thead element, a tr element, the body element, or the html element, then this is a parse error.
+                            // Switch the insertion mode to "after body".
+                            return StepResult::Consumed(Some(InsertionMode::AfterBody));
+                        }
+                        // An end tag whose tag name is "html"
+                        "html" => {
+                            // TODO: If the stack of open elements does not have a body element in scope, this is a parse error; ignore the token.
+                            // TODO: Otherwise, if there is a node in the stack of open elements that is not either a dd element, a dt element, an li element, an optgroup element, an option element, a p element, an rb element, an rp element, an rt element, an rtc element, a tbody element, a td element, a tfoot element, a th element, a thead element, a tr element, the body element, or the html element, then this is a parse error.
+                            // Switch the insertion mode to "after body".
+                            // Reprocess the token.
+                            return StepResult::Reprocess(InsertionMode::AfterBody, Token::Tag(tag));
+                        }
+                        // TODO: An end tag whose tag name is one of: "address", "article", "aside", "blockquote", "button", "center", "details", "dialog", "dir", "div", "dl", "fieldset", "figcaption", "figure", "footer", "header", "hgroup", "listing", "main", "menu", "nav", "ol", "pre", "search", "section", "select", "summary", "ul"
+                        // TODO: An end tag whose tag name is "form"
+                        // TODO: An end tag whose tag name is "p"
+                        // TODO: An end tag whose tag name is "li"
+                        // TODO: An end tag whose tag name is one of: "dd", "dt"
+                        // TODO: An end tag whose tag name is one of: "h1", "h2", "h3", "h4", "h5", "h6"
+                        // TODO: An end tag whose tag name is "sarcasm"
+                        // TODO: An end tag whose tag name is one of: "a", "b", "big", "code", "em", "font", "i", "nobr", "s", "small", "strike", "strong", "tt", "u"
+                        // TODO: An end tag token whose tag name is one of: "applet", "marquee", "object"
+                        // TODO: An end tag whose tag name is "br"
+                        // Any other end tag
+                        _ => {
+                            // TODO: Run these steps:
+                            //     Initialize node to be the current node (the bottommost node of the stack).
+                            //     Loop: If node is an HTML element with the same tag name as the token, then:
+                            //     Generate implied end tags, except for HTML elements with the same tag name as the token.
+                            //     If node is not the current node, then this is a parse error.
+                            //     Pop all the nodes from the current node up to node, including node, then stop these steps.
+                            //     Otherwise, if node is in the special category, then this is a parse error; ignore the token, and return.
+                            //     Set node to the previous entry in the stack of open elements.
+                            //     Return to the step labeled loop.
+                            let current_node = self.current_node();
+                            if let NodeSubtype::Element(e) = current_node.subtype()
+                                && e.tag_name() == tag.name
+                            {
+                                self.open_elements.pop();
+                            }
+
+                            return StepResult::Consumed(None);
+                        }
+                    },
+                },
+                // An end-of-file token
+                Token::EOF => {
+                    // TODO: If the stack of template insertion modes is not empty, then process the token using the rules for the "in template" insertion mode. Otherwise, follow these steps: If there is a node in the stack of open elements that is not either a dd element, a dt element, an li element, an optgroup element, an option element, a p element, an rb element, an rp element, an rt element, an rtc element, a tbody element, a td element, a tfoot element, a th element, a thead element, a tr element, the body element, or the html element, then this is a parse error. Stop parsing.
+                    return StepResult::Done;
+                }
+            },
+            // https://html.spec.whatwg.org/multipage/parsing.html#parsing-main-incdata
+            InsertionMode::Text => match token {
+                // A character token
+                Token::Character(c) => {
+                    // Insert the token's character.
+                    // This can never be a U+0000 NULL character; the tokenizer converts those to U+FFFD REPLACEMENT CHARACTER characters.
+                    self.insert_character(c);
+                    return StepResult::Consumed(None);
+                }
+                // An end-of-file token
+                Token::EOF => {
+                    // TODO: Parse error.
+                    // TODO: If the current node is a script element, then set its already started to true.
+                    // Pop the current node off the stack of open elements.
+                    // Switch the insertion mode to the original insertion mode and reprocess the token.
+                    self.open_elements.pop();
+                    return StepResult::Reprocess(self.original_mode.get(), token);
+                }
+                Token::Tag(tag) => match &tag.kind {
+                    TagKind::StartTag => {
+                        self.open_elements.pop();
+                        return StepResult::Reprocess(self.original_mode.get(), Token::Tag(tag));
+                    }
+                    TagKind::EndTag => match tag.name.as_str() {
+                        // TODO: An end tag whose tag name is "script"
+                        // Any other end tag
+                        _ => {
+                            // Pop the current node off the stack of open elements.
+                            // Switch the insertion mode to the original insertion mode.
+                            self.open_elements.pop();
+                            return StepResult::Reprocess(self.original_mode.get(), Token::Tag(tag));
+                        }
+                    },
+                },
+                _ => {
+                    self.open_elements.pop();
+                    return StepResult::Reprocess(self.original_mode.get(), token);
+                }
+            },
+            // https://html.spec.whatwg.org/multipage/parsing.html#parsing-main-afterbody
+            InsertionMode::AfterBody => match token {
+                // A character token that is one of U+0009 CHARACTER TABULATION, U+000A LINE FEED (LF), U+000C FORM FEED (FF), U+000D CARRIAGE RETURN (CR), or U+0020 SPACE
+                Token::Character('\t')
+                | Token::Character('\n')
+                | Token::Character('\x0C')
+                | Token::Character('\r')
+                | Token::Character(' ') => {
+                    // Process the token using the rules for the "in body" insertion mode.
+                    return self.step(InsertionMode::InBody, token);
+                }
+                // A comment token
+                Token::Comment(c) => {
+                    // Insert a comment as the last child of the first element in the stack of open elements (the html element).
+                    self.insert_comment(&c);
+                    return StepResult::Consumed(None);
+                }
+                // TODO: A DOCTYPE token - Parse error. Ignore the token.
+                Token::Tag(tag) => match &tag.kind {
+                    TagKind::StartTag => match tag.name.as_str() {
+                        // A start tag whose tag name is "html"
+                        "html" => {
+                            // Process the token using the rules for the "in body" insertion mode.
+                            return self.step(InsertionMode::InBody, Token::Tag(tag));
+                        }
+                        _ => {
+                            return StepResult::Reprocess(InsertionMode::InBody, Token::Tag(tag));
+                        }
+                    },
+                    TagKind::EndTag => match tag.name.as_str() {
+                        // An end tag whose tag name is "html"
+                        "html" => {
+                            // TODO: If the parser was created as part of the HTML fragment parsing algorithm, this is a parse error; ignore the token. (fragment case)
+                            // Otherwise, switch the insertion mode to "after after body".
+                            return StepResult::Consumed(Some(InsertionMode::AfterAfterBody));
+                        }
+                        _ => {
+                            return StepResult::Reprocess(InsertionMode::InBody, Token::Tag(tag));
+                        }
+                    },
+                },
+                // An end-of-file token
+                Token::EOF => {
+                    // Stop parsing.
+                    return StepResult::Done;
+                }
+                // Anything else
+                _ => {
+                    // Parse error. Switch the insertion mode to "in body" and reprocess the token.
+                    return StepResult::Reprocess(InsertionMode::InBody, token);
+                }
+            },
+            // https://html.spec.whatwg.org/multipage/parsing.html#the-after-after-body-insertion-mode
+            InsertionMode::AfterAfterBody => match token {
+                // A comment token
+                Token::Comment(c) => {
+                    // Insert a comment as the last child of the Document object.
+                    self.insert_comment_into_document(&c);
+                    return StepResult::Consumed(None);
+                }
+                // TODO: A DOCTYPE token
+                // A character token that is one of U+0009 CHARACTER TABULATION, U+000A LINE FEED (LF), U+000C FORM FEED (FF), U+000D CARRIAGE RETURN (CR), or U+0020 SPACE
+                Token::Character('\t')
+                | Token::Character('\n')
+                | Token::Character('\x0C')
+                | Token::Character('\r')
+                | Token::Character(' ') => {
+                    // Process the token using the rules for the "in body" insertion mode.
+                    return self.step(InsertionMode::InBody, token);
+                }
+                // A start tag whose tag name is "html"
+                Token::Tag(tag) if matches!(tag.kind, TagKind::StartTag) && tag.name == "html" => {
+                    // Process the token using the rules for the "in body" insertion mode.
+                    return self.step(InsertionMode::InBody, Token::Tag(tag));
+                }
+                // An end-of-file token
+                Token::EOF => {
+                    // Stop parsing.
+                    return StepResult::Done;
+                }
+                // Anything else
+                _ => {
+                    // Parse error. Switch the insertion mode to "in body" and reprocess the token.
+                    return StepResult::Reprocess(InsertionMode::InBody, token);
+                }
             },
         }
     }
