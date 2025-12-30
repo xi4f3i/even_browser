@@ -1,8 +1,6 @@
 use crate::dom::html::state::State;
 use crate::dom::html::token::{Attribute, Tag, TagKind, Token};
 use std::cell::{Cell, RefCell};
-use std::mem;
-use std::ops::DerefMut;
 
 enum ProcessResult {
     Continue,
@@ -279,6 +277,35 @@ impl Tokenizer {
                 // EOF - Reconsume in the after attribute name state.
                 None => ProcessResult::Reconsume(State::AfterAttributeName),
             },
+            State::AfterAttributeName => match c {
+                Some(ch) => match ch {
+                    // U+0009 CHARACTER TABULATION (tab) | U+000A LINE FEED (LF) | U+000C FORM FEED (FF) | U+0020 SPACE - Ignore the character.
+                    '\t' | '\n' | '\x0C' | ' ' => ProcessResult::Continue,
+                    // U+002F SOLIDUS (/) - Switch to the self-closing start tag state.
+                    '/' => ProcessResult::Switch(State::SelfClosingStartTag),
+                    // U+003D EQUALS SIGN (=) - Switch to the before attribute value state.
+                    '=' => ProcessResult::Switch(State::BeforeAttributeValue),
+                    // U+003E GREATER-THAN SIGN (>) - Switch to the data state. Emit the current tag token.
+                    '>' => ProcessResult::EmitAndSwitch(self.current_tag_token(), State::Data),
+                    // Anything else
+                    _ => {
+                        // Start a new attribute in the current tag token.
+                        // Set that attribute name and value to the empty string.
+                        self.create_attr();
+                        // Reconsume in the attribute name state.
+                        ProcessResult::Reconsume(State::AttributeName)
+                    }
+                },
+                // EOF
+                None => {
+                    // This is an eof-in-tag parse error.
+                    self.print_parse_error("eof-in-tag");
+                    // Emit an end-of-file token.
+                    ProcessResult::Emit(Token::EOF)
+                }
+            },
+            // https://html.spec.whatwg.org/multipage/parsing.html#before-attribute-value-state
+            State::BeforeAttributeValue => match c {},
             // TODO: Comment & Bogus Comment
             State::SimpleComment => match c {
                 Some(ch) => match ch {
@@ -294,8 +321,9 @@ impl Tokenizer {
     }
 
     fn create_attr(&self) {
-        self.cur_attr_name.replace(String::new());
-        self.cur_attr_value.replace(String::new());
+        self.append_cur_attr();
+        // self.cur_attr_name.replace(String::new());
+        // self.cur_attr_value.replace(String::new());
     }
 
     fn create_start_tag(&self) {
@@ -314,7 +342,16 @@ impl Tokenizer {
         self.cur_tag_attributes.replace(Vec::new());
     }
 
+    fn append_cur_attr(&self) {
+        self.cur_tag_attributes.borrow_mut().push(Attribute {
+            name: self.cur_attr_name.take(),
+            value: self.cur_attr_value.take(),
+        });
+    }
+
     fn current_tag_token(&self) -> Token {
+        self.append_cur_attr();
+
         self.cur_tag_attributes
             .borrow_mut()
             .retain(|attr| !attr.name.is_empty());
@@ -332,6 +369,6 @@ impl Tokenizer {
     }
 
     fn print_parse_error(&self, err: &str) {
-        println!("[Tokenizer] {}", err);
+        println!("[Tokenizer] Parse error: {}", err);
     }
 }
