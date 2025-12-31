@@ -1,4 +1,4 @@
-use crate::dom::html::state::State;
+use crate::dom::html::state::{AttrValueKind, State};
 use crate::dom::html::token::{Attribute, Tag, TagKind, Token};
 use std::cell::{Cell, RefCell};
 
@@ -39,6 +39,8 @@ impl Tokenizer {
             cur_tag_name: RefCell::new(String::new()),
             cur_tag_self_closing: Cell::new(false),
             cur_tag_attributes: RefCell::new(Vec::new()),
+            cur_attr_name: RefCell::new(String::new()),
+            cur_attr_value: RefCell::new(String::new()),
         }
     }
 
@@ -305,7 +307,53 @@ impl Tokenizer {
                 }
             },
             // https://html.spec.whatwg.org/multipage/parsing.html#before-attribute-value-state
-            State::BeforeAttributeValue => match c {},
+            State::BeforeAttributeValue => match c {
+                Some(ch) => match ch {
+                    // U+0009 CHARACTER TABULATION (tab) | U+000A LINE FEED (LF) | U+000C FORM FEED (FF) | U+0020 SPACE - Ignore the character.
+                    '\t' | '\n' | '\x0C' | ' ' => ProcessResult::Continue,
+                    // U+0022 QUOTATION MARK (") - Switch to the attribute value (double-quoted) state.
+                    '"' => {
+                        ProcessResult::Switch(State::AttributeValue(AttrValueKind::DoubleQuoted))
+                    }
+                    // U+0027 APOSTROPHE (') - Switch to the attribute value (single-quoted) state.
+                    '\'' => {
+                        ProcessResult::Switch(State::AttributeValue(AttrValueKind::SingleQuoted))
+                    }
+                    // U+003E GREATER-THAN SIGN (>)
+                    '>' => {
+                        // This is a missing-attribute-value parse error.
+                        self.print_parse_error("missing-attribute-value");
+                        // Switch to the data state.
+                        // Emit the current tag token.
+                        ProcessResult::EmitAndSwitch(self.current_tag_token(), State::Data)
+                    }
+                    // Anything else - Reconsume in the attribute value (unquoted) state.
+                    _ => ProcessResult::Reconsume(State::AttributeValue(AttrValueKind::Unquoted)),
+                },
+                // Anything else - Reconsume in the attribute value (unquoted) state.
+                None => ProcessResult::Reconsume(State::AttributeValue(AttrValueKind::Unquoted)),
+            },
+            // https://html.spec.whatwg.org/multipage/parsing.html#attribute-value-(double-quoted)-state
+            State::AttributeValue(AttrValueKind::DoubleQuoted) => match c {
+                Some(ch) => match ch {
+                    // U+0022 QUOTATION MARK (") - Switch to the after attribute value (quoted) state.
+                    '"' => ProcessResult::Switch(State::AfterAttributeValueQuoted),
+                    // TODO: U+0026 AMPERSAND (&)
+                    // TODO: U+0000 NULL
+                    // Anything else - Append the current input character to the current attribute's value.
+                    _ => {
+                        self.cur_attr_value.borrow_mut().push(ch);
+                        ProcessResult::Continue
+                    }
+                },
+                // EOF
+                None => {
+                    // This is an eof-in-tag parse error.
+                    self.print_parse_error("eof-in-tag");
+                    // Emit an end-of-file token.
+                    ProcessResult::Emit(Token::EOF)
+                }
+            },
             // TODO: Comment & Bogus Comment
             State::SimpleComment => match c {
                 Some(ch) => match ch {
