@@ -7,7 +7,7 @@ enum ProcessResult {
     Switch(State),
     Reconsume(State),
     Emit(Token),
-    EmitTokens(Token, Vec<Token>),
+    EmitTokens(Vec<Token>),
     EmitAndReconsume(Token, State),
     EmitAndSwitch(Token, State),
 }
@@ -79,7 +79,10 @@ impl Tokenizer {
                 ProcessResult::Emit(token) => {
                     return token;
                 }
-                ProcessResult::EmitTokens(token, tokens) => {
+                ProcessResult::EmitTokens(mut tokens) => {
+                    let token = tokens
+                        .pop()
+                        .expect("[Tokenizer] Emit tokens should not be empty");
                     self.pending_tokens.replace(tokens);
                     return token;
                 }
@@ -147,7 +150,7 @@ impl Tokenizer {
                     // This is an eof-before-tag-name parse error.
                     self.print_parse_error("eof-before-tag-name");
                     // Emit a U+003C LESS-THAN SIGN character token and an end-of-file token.
-                    ProcessResult::EmitTokens(Token::Character('<'), vec![Token::EOF])
+                    ProcessResult::EmitTokens(vec![Token::EOF, Token::Character('<')])
                 }
             },
             // https://html.spec.whatwg.org/multipage/parsing.html#end-tag-open-state
@@ -181,10 +184,11 @@ impl Tokenizer {
                     // This is an eof-before-tag-name parse error.
                     self.print_parse_error("eof-before-tag-name");
                     // Emit a U+003C LESS-THAN SIGN character token, a U+002F SOLIDUS character token and an end-of-file token.
-                    ProcessResult::EmitTokens(
+                    ProcessResult::EmitTokens(vec![
+                        Token::EOF,
+                        Token::Character('/'),
                         Token::Character('<'),
-                        vec![Token::EOF, Token::Character('/')],
-                    )
+                    ])
                 }
             },
             State::TagName => match c {
@@ -354,6 +358,118 @@ impl Tokenizer {
                     ProcessResult::Emit(Token::EOF)
                 }
             },
+            // https://html.spec.whatwg.org/multipage/parsing.html#attribute-value-(single-quoted)-state
+            State::AttributeValue(AttrValueKind::SingleQuoted) => match c {
+                Some(ch) => match ch {
+                    // U+0027 APOSTROPHE (') - Switch to the after attribute value (quoted) state.
+                    '\'' => ProcessResult::Switch(State::AfterAttributeValueQuoted),
+                    // TODO: U+0026 AMPERSAND (&)
+                    // TODO: U+0000 NULL
+                    // Anything else - Append the current input character to the current attribute's value.
+                    _ => {
+                        self.cur_attr_value.borrow_mut().push(ch);
+                        ProcessResult::Continue
+                    }
+                },
+                // EOF
+                None => {
+                    // This is an eof-in-tag parse error.
+                    self.print_parse_error("eof-in-tag");
+                    // Emit an end-of-file token.
+                    ProcessResult::Emit(Token::EOF)
+                }
+            },
+            // https://html.spec.whatwg.org/multipage/parsing.html#attribute-value-(unquoted)-state
+            State::AttributeValue(AttrValueKind::Unquoted) => match c {
+                Some(ch) => match ch {
+                    // U+0009 CHARACTER TABULATION (tab) | U+000A LINE FEED (LF) | U+000C FORM FEED (FF) | U+0020 SPACE - Switch to the before attribute name state.
+                    '\t' | '\n' | '\x0C' | ' ' => ProcessResult::Switch(State::BeforeAttributeName),
+                    // TODO: U+0026 AMPERSAND (&)
+                    // U+003E GREATER-THAN SIGN (>)
+                    '>' => {
+                        // Switch to the data state.
+                        // Emit the current tag token.
+                        ProcessResult::EmitAndSwitch(self.current_tag_token(), State::Data)
+                    }
+                    // TODO: U+0000 NULL
+                    // U+0022 QUOTATION MARK (") | U+0027 APOSTROPHE (') | U+003C LESS-THAN SIGN (<) | U+003D EQUALS SIGN (=) | U+0060 GRAVE ACCENT (`)
+                    '"' | '\'' | '<' | '=' | '`' => {
+                        // This is an unexpected-character-in-unquoted-attribute-value parse error.
+                        self.print_parse_error("unexpected-character-in-unquoted-attribute-value");
+                        // Treat it as per the "anything else" entry below.
+                        self.cur_attr_value.borrow_mut().push(ch);
+                        ProcessResult::Continue
+                    }
+                    // Anything else - Append the current input character to the current attribute's value.
+                    _ => {
+                        self.cur_attr_value.borrow_mut().push(ch);
+                        ProcessResult::Continue
+                    }
+                },
+                // EOF
+                None => {
+                    // This is an eof-in-tag parse error.
+                    self.print_parse_error("eof-in-tag");
+                    // Emit an end-of-file token.
+                    ProcessResult::Emit(Token::EOF)
+                }
+            },
+            // https://html.spec.whatwg.org/multipage/parsing.html#after-attribute-value-(quoted)-state
+            State::AfterAttributeValueQuoted => match c {
+                Some(ch) => match ch {
+                    // U+0009 CHARACTER TABULATION (tab) | U+000A LINE FEED (LF) | U+000C FORM FEED (FF) | U+0020 SPACE - Switch to the before attribute name state.
+                    '\t' | '\n' | '\x0C' | ' ' => ProcessResult::Switch(State::BeforeAttributeName),
+                    // U+002F SOLIDUS (/) - Switch to the self-closing start tag state.
+                    '/' => ProcessResult::Switch(State::SelfClosingStartTag),
+                    // U+003E GREATER-THAN SIGN (>)
+                    '>' => {
+                        // Switch to the data state.
+                        // Emit the current tag token.
+                        ProcessResult::EmitAndSwitch(self.current_tag_token(), State::Data)
+                    }
+                    // Anything else
+                    _ => {
+                        // This is a missing-whitespace-between-attributes parse error.
+                        self.print_parse_error("missing-whitespace-between-attributes");
+                        // Reconsume in the before attribute name state.
+                        ProcessResult::Reconsume(State::BeforeAttributeName)
+                    }
+                },
+                // EOF
+                None => {
+                    // This is an eof-in-tag parse error.
+                    self.print_parse_error("eof-in-tag");
+                    // Emit an end-of-file token.
+                    ProcessResult::Emit(Token::EOF)
+                }
+            },
+            // https://html.spec.whatwg.org/multipage/parsing.html#self-closing-start-tag-state
+            State::SelfClosingStartTag => match c {
+                Some(ch) => match ch {
+                    // U+003E GREATER-THAN SIGN (>)
+                    '>' => {
+                        // Set the self-closing flag of the current tag token.
+                        self.cur_tag_self_closing.set(true);
+                        // Switch to the data state.
+                        // Emit the current tag token.
+                        ProcessResult::EmitAndSwitch(self.current_tag_token(), State::Data)
+                    }
+                    // Anything else
+                    _ => {
+                        // This is an unexpected-solidus-in-tag parse error.
+                        self.print_parse_error("unexpected-solidus-in-tag");
+                        // Reconsume in the before attribute name state.
+                        ProcessResult::Reconsume(State::BeforeAttributeName)
+                    }
+                },
+                // EOF
+                None => {
+                    // This is an eof-in-tag parse error.
+                    self.print_parse_error("eof-in-tag");
+                    // Emit an end-of-file token.
+                    ProcessResult::Emit(Token::EOF)
+                }
+            },
             // TODO: Comment & Bogus Comment
             State::SimpleComment => match c {
                 Some(ch) => match ch {
@@ -410,7 +526,7 @@ impl Tokenizer {
             self.cur_tag_attributes.take(),
         );
 
-        match self.cur_tag_kind.get() {
+        match &self.cur_tag_kind.get() {
             TagKind::Start => Token::StartTag(tag),
             TagKind::End => Token::EndTag(tag),
         }
@@ -418,5 +534,132 @@ impl Tokenizer {
 
     fn print_parse_error(&self, err: &str) {
         println!("[Tokenizer] Parse error: {}", err);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn collect_tokens(input: &str) -> Vec<Token> {
+        let tokenizer = Tokenizer::new(input);
+        let mut tokens = Vec::new();
+        loop {
+            let token = tokenizer.next();
+            let is_eof = matches!(token, Token::EOF);
+            tokens.push(token);
+            if is_eof {
+                break;
+            }
+        }
+        tokens
+    }
+
+    fn attr(name: &str, value: &str) -> Attribute {
+        Attribute {
+            name: name.to_string(),
+            value: value.to_string(),
+        }
+    }
+
+    fn start_tag(name: &str, attributes: Vec<Attribute>, self_closing: bool) -> Token {
+        Token::StartTag(Tag::new(name.to_string(), self_closing, attributes))
+    }
+
+    fn end_tag(name: &str) -> Token {
+        Token::EndTag(Tag::new(name.to_string(), false, Vec::new()))
+    }
+
+    #[test]
+    fn test_basic_text() {
+        let tokens = collect_tokens("abc");
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Character('a'),
+                Token::Character('b'),
+                Token::Character('c'),
+                Token::EOF
+            ]
+        );
+    }
+
+    #[test]
+    fn test_basic_tags() {
+        let tokens = collect_tokens("<div></div>");
+        assert_eq!(
+            tokens,
+            vec![start_tag("div", vec![], false), end_tag("div"), Token::EOF]
+        );
+    }
+
+    #[test]
+    fn test_tag_case_insensitivity() {
+        // 标签名应自动转小写
+        let tokens = collect_tokens("<DIV></div >");
+        assert_eq!(
+            tokens,
+            vec![start_tag("div", vec![], false), end_tag("div"), Token::EOF]
+        );
+    }
+
+    #[test]
+    fn test_attributes_mixed() {
+        // 测试双引号、无引号和不同属性情况
+        let tokens = collect_tokens("<div id=\"test\" class=foo checked>");
+
+        let expected_attrs = vec![
+            attr("id", "test"),
+            attr("class", "foo"),
+            attr("checked", ""), // 布尔属性值为空字符串
+        ];
+
+        assert_eq!(tokens[0], start_tag("div", expected_attrs, false));
+    }
+
+    #[test]
+    fn test_attributes_single_quoted() {
+        let tokens = collect_tokens("<div id='test'>");
+        assert_eq!(tokens[0], start_tag("div", vec![attr("id", "test")], false));
+    }
+
+    #[test]
+    fn test_self_closing_tag() {
+        let tokens = collect_tokens("<br/>");
+        assert_eq!(tokens[0], start_tag("br", vec![], true));
+    }
+
+    #[test]
+    fn test_eof_in_tag_edge_case() {
+        // 测试 State::EndTagOpen 中的 EOF 处理逻辑
+        // 输入 "</"，期望输出 Token('<'), Token('/'), Token(EOF)
+        let tokens = collect_tokens("</");
+        assert_eq!(
+            tokens,
+            vec![Token::Character('<'), Token::Character('/'), Token::EOF]
+        );
+    }
+
+    #[test]
+    fn test_invalid_tag_name_start() {
+        // 测试 State::TagOpen 中非法字符的回退逻辑
+        // 输入 "<4"，期望输出 Token('<'), Token('4'), Token(EOF)
+        let tokens = collect_tokens("<4");
+        assert_eq!(
+            tokens,
+            vec![Token::Character('<'), Token::Character('4'), Token::EOF]
+        );
+    }
+
+    #[test]
+    fn test_attribute_value_with_illegal_chars() {
+        // 测试 Unquoted Attribute Value 对非法字符的宽容处理
+        // <div data=foo"bar> -> value: foo"bar
+        let tokens = collect_tokens("<div data=foo\"bar>");
+
+        assert_eq!(
+            tokens[0],
+            start_tag("div", vec![attr("data", "foo\"bar")], false)
+        );
     }
 }

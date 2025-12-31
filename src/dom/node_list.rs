@@ -1,10 +1,9 @@
-use crate::dom::html::tree_node::{TNodeBox, TNodePtr};
+use crate::dom::html::node::TNodePtr;
 use std::cell::RefCell;
-use std::ptr;
 
 /// https://dom.spec.whatwg.org/#nodelist
 pub(crate) struct NodeList {
-    data: RefCell<Vec<TNodeBox>>,
+    data: RefCell<Vec<TNodePtr>>,
 }
 
 impl NodeList {
@@ -14,15 +13,12 @@ impl NodeList {
         }
     }
 
-    pub(crate) fn append(&self, node: TNodeBox) {
+    pub(crate) fn append(&self, node: TNodePtr) {
         self.data.borrow_mut().push(node);
     }
 
     pub(crate) fn last(&self) -> Option<TNodePtr> {
-        self.data
-            .borrow_mut()
-            .last_mut()
-            .map(|node| ptr::NonNull::from(&mut **node))
+        self.data.borrow().last().copied()
     }
 
     /// https://dom.spec.whatwg.org/#dom-nodelist-length
@@ -32,9 +28,6 @@ impl NodeList {
 
     /// https://dom.spec.whatwg.org/#dom-nodelist-item
     pub(crate) fn item(&self, idx: usize) -> Option<TNodePtr> {
-        self.data
-            .borrow_mut()
-            .get_mut(idx)
-            .map(|node| ptr::NonNull::from(&mut **node))
+        self.data.borrow().get(idx).copied()
     }
 }

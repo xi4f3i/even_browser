@@ -1,5 +1,5 @@
 use crate::dom::character_data::CharacterData;
-use crate::dom::html::tree_node::TNodePtr;
+use crate::dom::html::node::TNodePtr;
 use std::ops::{Deref, DerefMut};
 
 /// https://dom.spec.whatwg.org/#interface-text

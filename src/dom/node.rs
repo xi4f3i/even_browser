@@ -1,4 +1,4 @@
-use crate::dom::html::tree_node::{TNodeBox, TNodePtr};
+use crate::dom::html::node::TNodePtr;
 use crate::dom::node_list::NodeList;
 use std::cell::{Cell, RefCell};
 
@@ -16,8 +16,12 @@ impl Node {
         }
     }
 
+    pub(crate) fn set_parent(&self, parent: Option<TNodePtr>) {
+        self.parent_node.set(parent);
+    }
+
     /// https://dom.spec.whatwg.org/#dom-node-appendchild
-    pub(crate) fn append_child(&self, node: TNodeBox) {
+    pub(crate) fn append_child(&self, node: TNodePtr) {
         self.child_nodes.borrow().append(node);
     }
 

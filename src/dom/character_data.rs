@@ -1,4 +1,4 @@
-use crate::dom::html::tree_node::TNodePtr;
+use crate::dom::html::node::TNodePtr;
 use crate::dom::node::Node;
 use std::cell::RefCell;
 use std::ops::{Deref, DerefMut};
@@ -6,7 +6,7 @@ use std::ops::{Deref, DerefMut};
 /// https://dom.spec.whatwg.org/#interface-characterdata
 pub(crate) struct CharacterData {
     base: Node,
-    data: RefCell<String>,
+    pub(crate) data: RefCell<String>,
 }
 
 impl CharacterData {

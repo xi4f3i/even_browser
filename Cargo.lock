@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "even-browser"
+name = "even_browser"
 version = "0.1.0"
