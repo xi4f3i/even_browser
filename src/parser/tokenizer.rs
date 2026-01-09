@@ -147,6 +147,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// The comment handler is not fully implemented.
     fn handle_comment(&self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
@@ -160,6 +161,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#self-closing-start-tag-state
     fn handle_self_closing_start_tag(&self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
@@ -179,6 +181,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#after-attribute-value-(quoted)-state
     fn handle_after_quoted_attr_value(&self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
@@ -197,6 +200,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#attribute-value-(unquoted)-state
     fn handle_unquoted_attr_value(&self, c: Option<char>) -> ProcessResult {
         let append_attr_value = |ch: char| {
             self.cur_attr_value.borrow_mut().push(ch);
@@ -220,6 +224,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#attribute-value-(single-quoted)-state
     fn handle_single_quoted_attr_value(&self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
@@ -236,6 +241,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#attribute-value-(double-quoted)-state
     fn handle_double_quoted_attr_value(&self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
@@ -252,6 +258,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#before-attribute-value-state
     fn handle_before_attr_value(&self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
@@ -268,6 +275,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#after-attribute-name-state
     fn handle_after_attr_name(&self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
@@ -287,6 +295,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#attribute-name-state
     fn handle_attr_name(&self, c: Option<char>) -> ProcessResult {
         let append_attr_name = |ch: char| {
             self.cur_attr_name
@@ -311,6 +320,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#before-attribute-name-state
     fn handle_before_attr_name(&self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
@@ -335,6 +345,7 @@ impl<'a> Tokenizer<'a> {
         self.append_attr();
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#tag-name-state
     fn handle_tag_name(&self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
@@ -380,6 +391,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#end-tag-open-state
     fn handle_end_tag_open(&self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
@@ -403,6 +415,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#tag-open-state
     fn handle_tag_open(&self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
@@ -412,7 +425,10 @@ impl<'a> Tokenizer<'a> {
                     self.create_start_tag();
                     ProcessResult::Reconsume(State::TagName)
                 }
-                '?' => ProcessResult::Switch(State::Comment),
+                '?' => {
+                    self.print_parse_error("unexpected-question-mark-instead-of-tag-name");
+                    ProcessResult::Switch(State::Comment)
+                }
                 _ => {
                     self.print_parse_error("invalid-first-character-of-tag-name");
                     ProcessResult::ReconsumeAndEmitToken(State::Data, Token::Char('<'))
@@ -447,6 +463,7 @@ impl<'a> Tokenizer<'a> {
         self.cur_attr_value.borrow_mut().clear();
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#data-state
     fn handle_data(&self, c: Option<char>) -> ProcessResult {
         match c {
             Some('<') => ProcessResult::Switch(State::TagOpen),
