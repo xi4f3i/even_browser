@@ -1,7 +1,0 @@
-use crate::constant::browser::{DEFAULT_BROWSER_PADDING, WIDTH};
-
-pub const HSTEP: f32 = 13.0;
-pub const VSTEP: f32 = 18.0;
-pub const DEFAULT_X: f32 = DEFAULT_BROWSER_PADDING;
-pub const DEFAULT_Y: f32 = DEFAULT_BROWSER_PADDING;
-pub const DEFAULT_WIDTH: f32 = WIDTH - 2.0 * DEFAULT_BROWSER_PADDING;

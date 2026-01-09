@@ -1,8 +1,5 @@
-pub(crate) mod attribute;
-mod character_data;
-mod comment;
+pub(crate) mod attr;
 mod document;
 mod element;
-pub(crate) mod named_node_map;
-pub(crate) mod node;
+mod node;
 mod text;
