@@ -1,6 +1,9 @@
 use crate::{
     dom::{Atom, Node, NodePtr, NodeType},
-    parser::html::{Token, Tokenizer, tokenizer::Tag},
+    parser::html::{
+        Token, Tokenizer,
+        tokenizer::{State, Tag},
+    },
 };
 
 const IMPLICIT_TAGS: [&str; 4] = ["head", "body", "html", "br"];
@@ -257,17 +260,11 @@ impl<'a> HTMLParser<'a> {
                 self.insert_html_elem(tag);
                 ProcessResult::Continue
             }
+            Token::StartTag(tag) if &tag.name == "title" => self.handle_rcdata_elem(tag),
             Token::StartTag(tag)
-                if &tag.name == "title"
-                    || &tag.name == "noscript"
-                    || &tag.name == "noframes"
-                    || &tag.name == "style" =>
+                if &tag.name == "noscript" || &tag.name == "noframes" || &tag.name == "style" || &tag.name == "script" /* TODO: script data state */ =>
             {
-                // https://html.spec.whatwg.org/multipage/parsing.html#generic-rcdata-element-parsing-algorithm
-                // https://html.spec.whatwg.org/multipage/parsing.html#generic-raw-text-element-parsing-algorithm
-                self.insert_html_elem(tag);
-                self.orig_mode = InsertionMode::InHead;
-                ProcessResult::Switch(InsertionMode::Text)
+                self.handle_raw_text_elem(tag)
             }
             Token::EndTag(tag) if &tag.name == "head" => {
                 self.open_elems.pop();
@@ -292,6 +289,22 @@ impl<'a> HTMLParser<'a> {
                 ProcessResult::Reprocess(InsertionMode::AfterHead, token)
             }
         }
+    }
+
+    /// https://html.spec.whatwg.org/multipage/parsing.html#generic-rcdata-element-parsing-algorithm
+    fn handle_rcdata_elem(&mut self, tag: Tag) -> ProcessResult {
+        self.insert_html_elem(tag);
+        self.tokenizer.switch(State::RCData);
+        self.orig_mode = self.mode;
+        ProcessResult::Switch(InsertionMode::Text)
+    }
+
+    /// https://html.spec.whatwg.org/multipage/parsing.html#generic-raw-text-element-parsing-algorithm
+    fn handle_raw_text_elem(&mut self, tag: Tag) -> ProcessResult {
+        self.insert_html_elem(tag);
+        self.tokenizer.switch(State::RawText);
+        self.orig_mode = self.mode;
+        ProcessResult::Switch(InsertionMode::Text)
     }
 
     /// https://html.spec.whatwg.org/multipage/parsing.html#insert-a-character

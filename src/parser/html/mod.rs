@@ -2,7 +2,7 @@ mod parser;
 mod tokenizer;
 
 pub(crate) use parser::HTMLParser;
-use tokenizer::{Token, Tokenizer};
+use tokenizer::{State, Token, Tokenizer};
 
 use crate::dom::{Node, NodePtr};
 
@@ -214,18 +214,18 @@ mod tests {
         assert!(found_div, "Did not find div in body with whitespace input");
     }
 
-    // #[test]
-    // fn test_rcdata_elements() {
-    //     let input = "<title><b>Bold</b></title>";
-    //     let doc = parse_html(input);
+    #[test]
+    fn test_rcdata_elements() {
+        let input = "<title><b>Bold</b></title>";
+        let doc = parse_html(input);
 
-    //     let html = get_child(doc, 0);
-    //     let head = get_child(html, 0);
-    //     let title = get_child(head, 0);
+        let html = get_child(doc, 0);
+        let head = get_child(html, 0);
+        let title = get_child(head, 0);
 
-    //     assert_elem(title, "title");
+        assert_elem(title, "title");
 
-    //     let text = get_child(title, 0);
-    //     assert_text(text, "<b>Bold</b>");
-    // }
+        let text = get_child(title, 0);
+        assert_text(text, "<b>Bold</b>");
+    }
 }

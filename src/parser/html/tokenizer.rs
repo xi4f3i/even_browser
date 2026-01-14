@@ -6,10 +6,11 @@ pub(crate) enum ProcessResult {
     Continue,
     Reconsume(State),
     ReconsumeAndEmitToken(State, Token),
+    ReconsumeAndEmitTokens(State, Vec<Token>),
     Switch(State),
     SwitchAndEmitToken(State, Token),
     EmitEOF,
-    EmitToken(Token),
+    EmitChar(char),
     EmitTokens(Vec<Token>),
 }
 
@@ -50,6 +51,14 @@ pub(crate) enum State {
     SelfClosingStartTag,
     EndTagOpen,
     Comment,
+    RCData,
+    RCDataLessThanSign,
+    RCDataEndTagOpen,
+    RCDataEndTagName,
+    RawText,
+    RawTextLessThanSign,
+    RawTextEndTagOpen,
+    RawTextEndTagName,
 }
 
 pub(crate) struct Tokenizer<'a> {
@@ -62,6 +71,8 @@ pub(crate) struct Tokenizer<'a> {
     cur_tag_attrs: Vec<Attr>,
     cur_attr_name: String,
     cur_attr_value: String,
+    temp_buf: Vec<char>,
+    last_start_tag_name: Option<Atom>,
 }
 
 impl<'a> Tokenizer<'a> {
@@ -76,7 +87,13 @@ impl<'a> Tokenizer<'a> {
             cur_tag_attrs: Vec::new(),
             cur_attr_name: String::new(),
             cur_attr_value: String::new(),
+            temp_buf: Vec::new(),
+            last_start_tag_name: None,
         }
+    }
+
+    pub(crate) fn switch(&mut self, state: State) {
+        self.state = state;
     }
 
     pub(crate) fn next(&mut self) -> Token {
@@ -92,27 +109,35 @@ impl<'a> Tokenizer<'a> {
                     self.input.next();
                 }
                 ProcessResult::Reconsume(state) => {
-                    self.state = state;
+                    self.switch(state);
                 }
                 ProcessResult::ReconsumeAndEmitToken(state, token) => {
-                    self.state = state;
+                    self.switch(state);
+                    return token;
+                }
+                ProcessResult::ReconsumeAndEmitTokens(state, mut tokens) => {
+                    self.switch(state);
+                    let token = tokens
+                        .pop()
+                        .expect("[Tokenizer] tokens should not be empty");
+                    self.pending_tokens = tokens;
                     return token;
                 }
                 ProcessResult::Switch(state) => {
                     self.input.next();
-                    self.state = state;
+                    self.switch(state);
                 }
                 ProcessResult::SwitchAndEmitToken(state, token) => {
                     self.input.next();
-                    self.state = state;
+                    self.switch(state);
                     return token;
                 }
                 ProcessResult::EmitEOF => {
                     return Token::EOF;
                 }
-                ProcessResult::EmitToken(token) => {
+                ProcessResult::EmitChar(ch) => {
                     self.input.next();
-                    return token;
+                    return Token::Char(ch);
                 }
                 ProcessResult::EmitTokens(mut tokens) => {
                     self.input.next();
@@ -142,9 +167,211 @@ impl<'a> Tokenizer<'a> {
             State::AfterQuotedAttrValue => self.handle_after_quoted_attr_value(c),
             State::SelfClosingStartTag => self.handle_self_closing_start_tag(c),
             State::Comment => self.handle_comment(c),
+            State::RCData => self.handle_rcdata(c),
+            State::RCDataLessThanSign => self.handle_rcdata_less_than_sign(c),
+            State::RCDataEndTagOpen => self.handle_rcdata_end_tag_open(c),
+            State::RCDataEndTagName => self.handle_rcdata_end_tag_name(c),
+            State::RawText => self.handle_raw_text(c),
+            State::RawTextLessThanSign => self.handle_raw_text_less_than_sign(c),
+            State::RawTextEndTagOpen => self.handle_raw_text_end_tag_open(c),
+            State::RawTextEndTagName => self.handle_raw_text_end_tag_name(c),
         }
     }
 
+    fn convert_temp_buf_to_tokens(&self) -> Vec<Token> {
+        let mut tokens = Vec::with_capacity(self.temp_buf.len() + 2);
+        self.temp_buf.iter().rev().for_each(|ch| {
+            tokens.push(Token::Char(*ch));
+        });
+        tokens.push(Token::Char('/'));
+        tokens.push(Token::Char('<'));
+        tokens
+    }
+
+    /// https://html.spec.whatwg.org/multipage/parsing.html#rawtext-end-tag-name-state
+    fn handle_raw_text_end_tag_name(&mut self, c: Option<char>) -> ProcessResult {
+        match c {
+            Some(ch) if self.is_whitespace(ch) => {
+                if self.is_appropriate_end_tag() {
+                    ProcessResult::Switch(State::BeforeAttrName)
+                } else {
+                    ProcessResult::ReconsumeAndEmitTokens(
+                        State::RawText,
+                        self.convert_temp_buf_to_tokens(),
+                    )
+                }
+            }
+            Some(ch) if ch == '/' => {
+                if self.is_appropriate_end_tag() {
+                    ProcessResult::Switch(State::SelfClosingStartTag)
+                } else {
+                    ProcessResult::ReconsumeAndEmitTokens(
+                        State::RawText,
+                        self.convert_temp_buf_to_tokens(),
+                    )
+                }
+            }
+            Some(ch) if ch == '>' => {
+                if self.is_appropriate_end_tag() {
+                    ProcessResult::SwitchAndEmitToken(State::Data, self.cur_tag_token())
+                } else {
+                    ProcessResult::ReconsumeAndEmitTokens(
+                        State::RawText,
+                        self.convert_temp_buf_to_tokens(),
+                    )
+                }
+            }
+            Some(ch) if ch.is_ascii_alphabetic() => {
+                self.cur_tag_name.push(ch.to_ascii_lowercase());
+                self.temp_buf.push(ch);
+                ProcessResult::Continue
+            }
+            _ => ProcessResult::ReconsumeAndEmitTokens(
+                State::RawText,
+                self.convert_temp_buf_to_tokens(),
+            ),
+        }
+    }
+
+    /// https://html.spec.whatwg.org/multipage/parsing.html#rawtext-end-tag-open-state
+    fn handle_raw_text_end_tag_open(&mut self, c: Option<char>) -> ProcessResult {
+        match c {
+            Some(ch) if ch.is_ascii_alphabetic() => {
+                self.create_end_tag();
+                ProcessResult::Reconsume(State::RawTextEndTagName)
+            }
+            _ => ProcessResult::ReconsumeAndEmitTokens(
+                State::RawText,
+                vec![Token::Char('/'), Token::Char('<')],
+            ),
+        }
+    }
+
+    /// https://html.spec.whatwg.org/multipage/parsing.html#rawtext-less-than-sign-state
+    fn handle_raw_text_less_than_sign(&mut self, c: Option<char>) -> ProcessResult {
+        match c {
+            Some('/') => {
+                self.temp_buf.clear();
+                ProcessResult::Switch(State::RawTextEndTagOpen)
+            }
+            _ => ProcessResult::ReconsumeAndEmitToken(State::RawText, Token::Char('<')),
+        }
+    }
+
+    fn is_whitespace(&self, ch: char) -> bool {
+        ch == '\t' || ch == '\n' || ch == '\x0C' || ch == ' '
+    }
+
+    /// https://html.spec.whatwg.org/multipage/parsing.html#rcdata-end-tag-name-state
+    fn handle_rcdata_end_tag_name(&mut self, c: Option<char>) -> ProcessResult {
+        match c {
+            Some(ch) if self.is_whitespace(ch) => {
+                if self.is_appropriate_end_tag() {
+                    ProcessResult::Switch(State::BeforeAttrName)
+                } else {
+                    ProcessResult::ReconsumeAndEmitTokens(
+                        State::RCData,
+                        self.convert_temp_buf_to_tokens(),
+                    )
+                }
+            }
+            Some(ch) if ch == '/' => {
+                if self.is_appropriate_end_tag() {
+                    ProcessResult::Switch(State::SelfClosingStartTag)
+                } else {
+                    ProcessResult::ReconsumeAndEmitTokens(
+                        State::RCData,
+                        self.convert_temp_buf_to_tokens(),
+                    )
+                }
+            }
+            Some(ch) if ch == '>' => {
+                if self.is_appropriate_end_tag() {
+                    ProcessResult::SwitchAndEmitToken(State::Data, self.cur_tag_token())
+                } else {
+                    ProcessResult::ReconsumeAndEmitTokens(
+                        State::RCData,
+                        self.convert_temp_buf_to_tokens(),
+                    )
+                }
+            }
+            Some(ch) if ch.is_ascii_alphabetic() => {
+                self.cur_tag_name.push(ch.to_ascii_lowercase());
+                self.temp_buf.push(ch);
+                ProcessResult::Continue
+            }
+            _ => ProcessResult::ReconsumeAndEmitTokens(
+                State::RCData,
+                self.convert_temp_buf_to_tokens(),
+            ),
+        }
+    }
+
+    /// https://html.spec.whatwg.org/multipage/parsing.html#appropriate-end-tag-token
+    fn is_appropriate_end_tag(&self) -> bool {
+        match &self.last_start_tag_name {
+            Some(last)
+                if last.as_ref() == self.cur_tag_name && self.cur_tag_type == TagType::End =>
+            {
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// https://html.spec.whatwg.org/multipage/parsing.html#rcdata-end-tag-open-state
+    fn handle_rcdata_end_tag_open(&mut self, c: Option<char>) -> ProcessResult {
+        match c {
+            Some(ch) if ch.is_ascii_alphabetic() => {
+                self.create_end_tag();
+                ProcessResult::Reconsume(State::RCDataEndTagName)
+            }
+            _ => ProcessResult::ReconsumeAndEmitTokens(
+                State::RCData,
+                vec![Token::Char('/'), Token::Char('<')],
+            ),
+        }
+    }
+
+    /// https://html.spec.whatwg.org/multipage/parsing.html#rcdata-less-than-sign-state
+    fn handle_rcdata_less_than_sign(&mut self, c: Option<char>) -> ProcessResult {
+        match c {
+            Some('/') => {
+                self.temp_buf.clear();
+                ProcessResult::Switch(State::RCDataEndTagOpen)
+            }
+            _ => ProcessResult::ReconsumeAndEmitToken(State::RCData, Token::Char('<')),
+        }
+    }
+
+    /// https://html.spec.whatwg.org/multipage/parsing.html#rcdata-state
+    fn handle_rcdata(&mut self, c: Option<char>) -> ProcessResult {
+        match c {
+            Some(ch) => match ch {
+                '<' => ProcessResult::Switch(State::RCDataLessThanSign),
+                _ => ProcessResult::EmitChar(ch),
+            },
+            None => ProcessResult::EmitEOF,
+        }
+    }
+
+    /// https://html.spec.whatwg.org/multipage/parsing.html#rawtext-state
+    fn handle_raw_text(&mut self, c: Option<char>) -> ProcessResult {
+        match c {
+            Some(ch) => match ch {
+                '<' => ProcessResult::Switch(State::RawTextLessThanSign),
+                _ => ProcessResult::EmitChar(ch),
+            },
+            None => ProcessResult::EmitEOF,
+        }
+    }
+
+    /// TODO: comment token
+    /// https://html.spec.whatwg.org/multipage/parsing.html#bogus-comment-state
+    /// https://html.spec.whatwg.org/multipage/parsing.html#markup-declaration-open-state
+    /// https://html.spec.whatwg.org/multipage/parsing.html#comment-start-state
+    /// https://html.spec.whatwg.org/multipage/parsing.html#comment-state
+    /// https://html.spec.whatwg.org/multipage/parsing.html#comment-end-state
     fn handle_comment(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
@@ -158,6 +385,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#self-closing-start-tag-state
     fn handle_self_closing_start_tag(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
@@ -177,17 +405,16 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#after-attribute-value-(quoted)-state
     fn handle_after_quoted_attr_value(&mut self, c: Option<char>) -> ProcessResult {
         match c {
-            Some(ch) => match ch {
-                '\t' | '\n' | '\x0C' | ' ' => ProcessResult::Switch(State::BeforeAttrName),
-                '/' => ProcessResult::Switch(State::SelfClosingStartTag),
-                '>' => ProcessResult::SwitchAndEmitToken(State::Data, self.cur_tag_token()),
-                _ => {
-                    self.print_parse_error("missing-whitespace-between-attributes");
-                    ProcessResult::Reconsume(State::BeforeAttrName)
-                }
-            },
+            Some(ch) if self.is_whitespace(ch) => ProcessResult::Switch(State::BeforeAttrName),
+            Some('/') => ProcessResult::Switch(State::SelfClosingStartTag),
+            Some('>') => ProcessResult::SwitchAndEmitToken(State::Data, self.cur_tag_token()),
+            Some(_) => {
+                self.print_parse_error("missing-whitespace-between-attributes");
+                ProcessResult::Reconsume(State::BeforeAttrName)
+            }
             None => {
                 self.print_parse_error("eof-in-tag");
                 ProcessResult::EmitEOF
@@ -195,21 +422,20 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#attribute-value-(unquoted)-state
     fn handle_unquoted_attr_value(&mut self, c: Option<char>) -> ProcessResult {
         match c {
-            Some(ch) => match ch {
-                '\t' | '\n' | '\x0C' | ' ' => ProcessResult::Switch(State::BeforeAttrName),
-                '>' => ProcessResult::SwitchAndEmitToken(State::Data, self.cur_tag_token()),
-                '"' | '\'' | '<' | '=' | '`' => {
-                    self.print_parse_error("unexpected-character-in-unquoted-attribute-value");
-                    self.cur_attr_value.push(ch);
-                    ProcessResult::Continue
-                }
-                _ => {
-                    self.cur_attr_value.push(ch);
-                    ProcessResult::Continue
-                }
-            },
+            Some(ch) if self.is_whitespace(ch) => ProcessResult::Switch(State::BeforeAttrName),
+            Some('>') => ProcessResult::SwitchAndEmitToken(State::Data, self.cur_tag_token()),
+            Some(ch) if ch == '"' || ch == '\'' || ch == '<' || ch == '=' || ch == '`' => {
+                self.print_parse_error("unexpected-character-in-unquoted-attribute-value");
+                self.cur_attr_value.push(ch);
+                ProcessResult::Continue
+            }
+            Some(ch) => {
+                self.cur_attr_value.push(ch);
+                ProcessResult::Continue
+            }
             None => {
                 self.print_parse_error("eof-in-tag");
                 ProcessResult::EmitEOF
@@ -217,6 +443,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#attribute-value-(single-quoted)-state
     fn handle_single_quoted_attr_value(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
@@ -233,6 +460,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#attribute-value-(double-quoted)-state
     fn handle_double_quoted_attr_value(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
@@ -249,34 +477,32 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#before-attribute-value-state
     fn handle_before_attr_value(&mut self, c: Option<char>) -> ProcessResult {
         match c {
-            Some(ch) => match ch {
-                '\t' | '\n' | '\x0C' | ' ' => ProcessResult::Continue,
-                '"' => ProcessResult::Switch(State::DoubleQuotedAttrValue),
-                '\'' => ProcessResult::Switch(State::SingleQuotedAttrValue),
-                '>' => {
-                    self.print_parse_error("missing-attribute-value");
-                    ProcessResult::SwitchAndEmitToken(State::Data, self.cur_tag_token())
-                }
-                _ => ProcessResult::Reconsume(State::UnquotedAttrValue),
-            },
+            Some(ch) if self.is_whitespace(ch) => ProcessResult::Continue,
+            Some('"') => ProcessResult::Switch(State::DoubleQuotedAttrValue),
+            Some('\'') => ProcessResult::Switch(State::SingleQuotedAttrValue),
+            Some('>') => {
+                self.print_parse_error("missing-attribute-value");
+                ProcessResult::SwitchAndEmitToken(State::Data, self.cur_tag_token())
+            }
+            Some(_) => ProcessResult::Reconsume(State::UnquotedAttrValue),
             None => ProcessResult::Reconsume(State::UnquotedAttrValue),
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#after-attribute-name-state
     fn handle_after_attr_name(&mut self, c: Option<char>) -> ProcessResult {
         match c {
-            Some(ch) => match ch {
-                '\t' | '\n' | '\x0C' | ' ' => ProcessResult::Continue,
-                '/' => ProcessResult::Switch(State::SelfClosingStartTag),
-                '=' => ProcessResult::Switch(State::BeforeAttrValue),
-                '>' => ProcessResult::SwitchAndEmitToken(State::Data, self.cur_tag_token()),
-                _ => {
-                    self.create_attr();
-                    ProcessResult::Reconsume(State::AttrName)
-                }
-            },
+            Some(ch) if self.is_whitespace(ch) => ProcessResult::Continue,
+            Some('/') => ProcessResult::Switch(State::SelfClosingStartTag),
+            Some('=') => ProcessResult::Switch(State::BeforeAttrValue),
+            Some('>') => ProcessResult::SwitchAndEmitToken(State::Data, self.cur_tag_token()),
+            Some(_) => {
+                self.create_attr();
+                ProcessResult::Reconsume(State::AttrName)
+            }
             None => {
                 self.print_parse_error("eof-in-tag");
                 ProcessResult::EmitEOF
@@ -284,43 +510,41 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#attribute-name-state
     fn handle_attr_name(&mut self, c: Option<char>) -> ProcessResult {
         match c {
-            Some(ch) => match ch {
-                '\t' | '\n' | '\x0C' | ' ' | '/' | '>' => {
-                    ProcessResult::Reconsume(State::AfterAttrName)
-                }
-                '=' => ProcessResult::Switch(State::BeforeAttrValue),
-                '"' | '\'' | '<' => {
-                    self.print_parse_error("unexpected-character-in-attribute-name");
-                    self.cur_attr_name.push(ch.to_ascii_lowercase());
-                    ProcessResult::Continue
-                }
-                _ => {
-                    self.cur_attr_name.push(ch.to_ascii_lowercase());
-                    ProcessResult::Continue
-                }
-            },
+            Some(ch) if self.is_whitespace(ch) || ch == '/' || ch == '>' => {
+                ProcessResult::Reconsume(State::AfterAttrName)
+            }
+            Some('=') => ProcessResult::Switch(State::BeforeAttrValue),
+            Some(ch) if ch == '"' || ch == '\'' || ch == '<' => {
+                self.print_parse_error("unexpected-character-in-attribute-name");
+                self.cur_attr_name.push(ch.to_ascii_lowercase());
+                ProcessResult::Continue
+            }
+            Some(ch) => {
+                self.cur_attr_name.push(ch.to_ascii_lowercase());
+                ProcessResult::Continue
+            }
             None => ProcessResult::Reconsume(State::AfterAttrName),
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#before-attribute-name-state
     fn handle_before_attr_name(&mut self, c: Option<char>) -> ProcessResult {
         match c {
-            Some(ch) => match ch {
-                '\t' | '\n' | '\x0C' | ' ' => ProcessResult::Continue,
-                '/' | '>' => ProcessResult::Reconsume(State::AfterAttrName),
-                '=' => {
-                    self.print_parse_error("unexpected-equals-sign-before-attribute-name");
-                    self.create_attr();
-                    self.cur_attr_name.push(ch);
-                    ProcessResult::Switch(State::AttrName)
-                }
-                _ => {
-                    self.create_attr();
-                    ProcessResult::Reconsume(State::AttrName)
-                }
-            },
+            Some(ch) if self.is_whitespace(ch) => ProcessResult::Continue,
+            Some('/') | Some('>') => ProcessResult::Reconsume(State::AfterAttrName),
+            Some('=') => {
+                self.print_parse_error("unexpected-equals-sign-before-attribute-name");
+                self.create_attr();
+                self.cur_attr_name.push('=');
+                ProcessResult::Switch(State::AttrName)
+            }
+            Some(_) => {
+                self.create_attr();
+                ProcessResult::Reconsume(State::AttrName)
+            }
             None => ProcessResult::Reconsume(State::AfterAttrName),
         }
     }
@@ -329,17 +553,16 @@ impl<'a> Tokenizer<'a> {
         self.append_attr();
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#tag-name-state
     fn handle_tag_name(&mut self, c: Option<char>) -> ProcessResult {
         match c {
-            Some(ch) => match ch {
-                '\t' | '\n' | '\x0C' | ' ' => ProcessResult::Switch(State::BeforeAttrName),
-                '/' => ProcessResult::Switch(State::SelfClosingStartTag),
-                '>' => ProcessResult::SwitchAndEmitToken(State::Data, self.cur_tag_token()),
-                _ => {
-                    self.cur_tag_name.push(ch.to_ascii_lowercase());
-                    ProcessResult::Continue
-                }
-            },
+            Some(ch) if self.is_whitespace(ch) => ProcessResult::Switch(State::BeforeAttrName),
+            Some('/') => ProcessResult::Switch(State::SelfClosingStartTag),
+            Some('>') => ProcessResult::SwitchAndEmitToken(State::Data, self.cur_tag_token()),
+            Some(ch) => {
+                self.cur_tag_name.push(ch.to_ascii_lowercase());
+                ProcessResult::Continue
+            }
             None => {
                 self.print_parse_error("eof-in-tag");
                 ProcessResult::EmitEOF
@@ -370,14 +593,20 @@ impl<'a> Tokenizer<'a> {
             attrs: std::mem::take(&mut self.cur_tag_attrs),
         };
 
+        let token = match self.cur_tag_type {
+            TagType::Start => {
+                self.last_start_tag_name = Some(Atom::from(&*self.cur_tag_name));
+                Token::StartTag(tag)
+            }
+            TagType::End => Token::EndTag(tag),
+        };
+
         self.cur_tag_name.clear();
 
-        match self.cur_tag_type {
-            TagType::Start => Token::StartTag(tag),
-            TagType::End => Token::EndTag(tag),
-        }
+        token
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#end-tag-open-state
     fn handle_end_tag_open(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
@@ -401,6 +630,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#tag-open-state
     fn handle_tag_open(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
@@ -448,10 +678,11 @@ impl<'a> Tokenizer<'a> {
         self.cur_attr_value.clear();
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#data-state
     fn handle_data(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some('<') => ProcessResult::Switch(State::TagOpen),
-            Some(ch) => ProcessResult::EmitToken(Token::Char(ch)),
+            Some(ch) => ProcessResult::EmitChar(ch),
             None => ProcessResult::EmitEOF,
         }
     }
