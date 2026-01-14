@@ -2,7 +2,7 @@ mod parser;
 mod tokenizer;
 
 pub(crate) use parser::HTMLParser;
-use tokenizer::{State, Token, Tokenizer};
+use tokenizer::{Token, Tokenizer};
 
 use crate::dom::{Node, NodePtr};
 
