@@ -3,6 +3,14 @@ name = "even_browser"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "even_browser"
+path = "src/lib.rs"
+
+[[bin]]
+name = "even_browser"
+path = "src/main.rs"
+
 [dependencies]
 native-tls = "0.2"
 skia-safe = { version = "0.90.0", features = ["gl"] }
@@ -12,3 +20,4 @@ gl-rs = { version = "0.14.0", package = "gl" }
 glutin = "0.32.0"
 glutin-winit = "0.5.0"
 csscolorparser = "0.8"
+rusty_v8 = "0.32.1"

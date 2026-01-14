@@ -1,12 +1,8 @@
-use std::{
-    cell::{Cell, RefCell},
-    iter::Peekable,
-    str::Chars,
-};
+use std::{iter::Peekable, str::Chars};
 
-use crate::dom::attr::Attr;
+use crate::dom::Attr;
 
-enum ProcessResult {
+pub(crate) enum ProcessResult {
     Continue,
     Reconsume(State),
     ReconsumeAndEmitToken(State, Token),
@@ -24,23 +20,22 @@ enum TagType {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct Tag {
-    name: String,
-    self_closing: bool,
-    attrs: Vec<Attr>,
+pub(crate) struct Tag {
+    pub(crate) name: String,
+    pub(crate) self_closing: bool,
+    pub(crate) attrs: Vec<Attr>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-enum Token {
+pub(crate) enum Token {
     EOF,
     Char(char),
-    Text(String),
     StartTag(Tag),
     EndTag(Tag),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum State {
+pub(crate) enum State {
     Data,
     TagOpen,
     TagName,
@@ -57,79 +52,82 @@ enum State {
     Comment,
 }
 
-struct Tokenizer<'a> {
-    input: RefCell<Peekable<Chars<'a>>>,
-    state: Cell<State>,
-    pending_tokens: RefCell<Vec<Token>>,
-    cur_tag_type: Cell<TagType>,
-    cur_tag_name: RefCell<String>,
-    cur_tag_self_closing: Cell<bool>,
-    cur_tag_attrs: RefCell<Vec<Attr>>,
-    cur_attr_name: RefCell<String>,
-    cur_attr_value: RefCell<String>,
+pub(crate) struct Tokenizer<'a> {
+    input: Peekable<Chars<'a>>,
+    state: State,
+    pending_tokens: Vec<Token>,
+    cur_tag_type: TagType,
+    cur_tag_name: String,
+    cur_tag_self_closing: bool,
+    cur_tag_attrs: Vec<Attr>,
+    cur_attr_name: String,
+    cur_attr_value: String,
 }
 
 impl<'a> Tokenizer<'a> {
-    pub(crate) fn new(input: &'_ str) -> Tokenizer<'_> {
+    pub(crate) fn new(input: &'a str) -> Tokenizer<'a> {
         Tokenizer {
-            input: RefCell::new(input.chars().peekable()),
-            state: Cell::new(State::Data),
-            pending_tokens: RefCell::new(Vec::new()),
-            cur_tag_type: Cell::new(TagType::Start),
-            cur_tag_name: RefCell::new(String::new()),
-            cur_tag_self_closing: Cell::new(false),
-            cur_tag_attrs: RefCell::new(Vec::new()),
-            cur_attr_name: RefCell::new(String::new()),
-            cur_attr_value: RefCell::new(String::new()),
+            input: input.chars().peekable(),
+            state: State::Data,
+            pending_tokens: Vec::new(),
+            cur_tag_type: TagType::Start,
+            cur_tag_name: String::new(),
+            cur_tag_self_closing: false,
+            cur_tag_attrs: Vec::new(),
+            cur_attr_name: String::new(),
+            cur_attr_value: String::new(),
         }
     }
 
-    pub(crate) fn next(&self) -> Token {
-        if let Some(token) = self.pending_tokens.borrow_mut().pop() {
+    pub(crate) fn next(&mut self) -> Token {
+        if let Some(token) = self.pending_tokens.pop() {
             return token;
         }
 
         loop {
-            let c = self.input.borrow_mut().peek().copied();
+            let c = self.input.peek().copied();
 
             match self.process(c) {
                 ProcessResult::Continue => {
-                    self.input.borrow_mut().next();
+                    self.input.next();
                 }
                 ProcessResult::Reconsume(state) => {
-                    self.state.set(state);
+                    self.state = state;
                 }
                 ProcessResult::ReconsumeAndEmitToken(state, token) => {
-                    self.state.set(state);
+                    self.state = state;
                     return token;
                 }
                 ProcessResult::Switch(state) => {
-                    self.input.borrow_mut().next();
-                    self.state.set(state);
+                    self.input.next();
+                    self.state = state;
                 }
                 ProcessResult::SwitchAndEmitToken(state, token) => {
-                    self.input.borrow_mut().next();
-                    self.state.set(state);
+                    self.input.next();
+                    self.state = state;
                     return token;
                 }
                 ProcessResult::EmitEOF => {
                     return Token::EOF;
                 }
-                ProcessResult::EmitToken(token) => return token,
+                ProcessResult::EmitToken(token) => {
+                    self.input.next();
+                    return token;
+                }
                 ProcessResult::EmitTokens(mut tokens) => {
-                    self.input.borrow_mut().next();
+                    self.input.next();
                     let token = tokens
                         .pop()
                         .expect("[Tokenizer] tokens should not be empty");
-                    self.pending_tokens.replace(tokens);
+                    self.pending_tokens = tokens;
                     return token;
                 }
             }
         }
     }
 
-    fn process(&self, c: Option<char>) -> ProcessResult {
-        match self.state.get() {
+    fn process(&mut self, c: Option<char>) -> ProcessResult {
+        match self.state {
             State::Data => self.handle_data(c),
             State::TagOpen => self.handle_tag_open(c),
             State::EndTagOpen => self.handle_end_tag_open(c),
@@ -147,8 +145,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    /// The comment handler is not fully implemented.
-    fn handle_comment(&self, c: Option<char>) -> ProcessResult {
+    fn handle_comment(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
                 '>' => ProcessResult::Switch(State::Data),
@@ -161,12 +158,11 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    /// https://html.spec.whatwg.org/multipage/parsing.html#self-closing-start-tag-state
-    fn handle_self_closing_start_tag(&self, c: Option<char>) -> ProcessResult {
+    fn handle_self_closing_start_tag(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
                 '>' => {
-                    self.cur_tag_self_closing.set(true);
+                    self.cur_tag_self_closing = true;
                     ProcessResult::SwitchAndEmitToken(State::Data, self.cur_tag_token())
                 }
                 _ => {
@@ -181,8 +177,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    /// https://html.spec.whatwg.org/multipage/parsing.html#after-attribute-value-(quoted)-state
-    fn handle_after_quoted_attr_value(&self, c: Option<char>) -> ProcessResult {
+    fn handle_after_quoted_attr_value(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
                 '\t' | '\n' | '\x0C' | ' ' => ProcessResult::Switch(State::BeforeAttrName),
@@ -200,22 +195,20 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    /// https://html.spec.whatwg.org/multipage/parsing.html#attribute-value-(unquoted)-state
-    fn handle_unquoted_attr_value(&self, c: Option<char>) -> ProcessResult {
-        let append_attr_value = |ch: char| {
-            self.cur_attr_value.borrow_mut().push(ch);
-            ProcessResult::Continue
-        };
-
+    fn handle_unquoted_attr_value(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
                 '\t' | '\n' | '\x0C' | ' ' => ProcessResult::Switch(State::BeforeAttrName),
                 '>' => ProcessResult::SwitchAndEmitToken(State::Data, self.cur_tag_token()),
                 '"' | '\'' | '<' | '=' | '`' => {
                     self.print_parse_error("unexpected-character-in-unquoted-attribute-value");
-                    append_attr_value(ch)
+                    self.cur_attr_value.push(ch);
+                    ProcessResult::Continue
                 }
-                _ => append_attr_value(ch),
+                _ => {
+                    self.cur_attr_value.push(ch);
+                    ProcessResult::Continue
+                }
             },
             None => {
                 self.print_parse_error("eof-in-tag");
@@ -224,13 +217,12 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    /// https://html.spec.whatwg.org/multipage/parsing.html#attribute-value-(single-quoted)-state
-    fn handle_single_quoted_attr_value(&self, c: Option<char>) -> ProcessResult {
+    fn handle_single_quoted_attr_value(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
                 '\'' => ProcessResult::Switch(State::AfterQuotedAttrValue),
                 _ => {
-                    self.cur_attr_value.borrow_mut().push(ch);
+                    self.cur_attr_value.push(ch);
                     ProcessResult::Continue
                 }
             },
@@ -241,13 +233,12 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    /// https://html.spec.whatwg.org/multipage/parsing.html#attribute-value-(double-quoted)-state
-    fn handle_double_quoted_attr_value(&self, c: Option<char>) -> ProcessResult {
+    fn handle_double_quoted_attr_value(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
                 '"' => ProcessResult::Switch(State::AfterQuotedAttrValue),
                 _ => {
-                    self.cur_attr_value.borrow_mut().push(ch);
+                    self.cur_attr_value.push(ch);
                     ProcessResult::Continue
                 }
             },
@@ -258,8 +249,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    /// https://html.spec.whatwg.org/multipage/parsing.html#before-attribute-value-state
-    fn handle_before_attr_value(&self, c: Option<char>) -> ProcessResult {
+    fn handle_before_attr_value(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
                 '\t' | '\n' | '\x0C' | ' ' => ProcessResult::Continue,
@@ -275,8 +265,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    /// https://html.spec.whatwg.org/multipage/parsing.html#after-attribute-name-state
-    fn handle_after_attr_name(&self, c: Option<char>) -> ProcessResult {
+    fn handle_after_attr_name(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
                 '\t' | '\n' | '\x0C' | ' ' => ProcessResult::Continue,
@@ -295,15 +284,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    /// https://html.spec.whatwg.org/multipage/parsing.html#attribute-name-state
-    fn handle_attr_name(&self, c: Option<char>) -> ProcessResult {
-        let append_attr_name = |ch: char| {
-            self.cur_attr_name
-                .borrow_mut()
-                .push(ch.to_ascii_lowercase());
-            ProcessResult::Continue
-        };
-
+    fn handle_attr_name(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
                 '\t' | '\n' | '\x0C' | ' ' | '/' | '>' => {
@@ -312,16 +293,19 @@ impl<'a> Tokenizer<'a> {
                 '=' => ProcessResult::Switch(State::BeforeAttrValue),
                 '"' | '\'' | '<' => {
                     self.print_parse_error("unexpected-character-in-attribute-name");
-                    append_attr_name(ch)
+                    self.cur_attr_name.push(ch.to_ascii_lowercase());
+                    ProcessResult::Continue
                 }
-                _ => append_attr_name(ch),
+                _ => {
+                    self.cur_attr_name.push(ch.to_ascii_lowercase());
+                    ProcessResult::Continue
+                }
             },
             None => ProcessResult::Reconsume(State::AfterAttrName),
         }
     }
 
-    /// https://html.spec.whatwg.org/multipage/parsing.html#before-attribute-name-state
-    fn handle_before_attr_name(&self, c: Option<char>) -> ProcessResult {
+    fn handle_before_attr_name(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
                 '\t' | '\n' | '\x0C' | ' ' => ProcessResult::Continue,
@@ -329,7 +313,7 @@ impl<'a> Tokenizer<'a> {
                 '=' => {
                     self.print_parse_error("unexpected-equals-sign-before-attribute-name");
                     self.create_attr();
-                    self.cur_attr_name.borrow_mut().push(ch);
+                    self.cur_attr_name.push(ch);
                     ProcessResult::Switch(State::AttrName)
                 }
                 _ => {
@@ -341,19 +325,18 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn create_attr(&self) {
+    fn create_attr(&mut self) {
         self.append_attr();
     }
 
-    /// https://html.spec.whatwg.org/multipage/parsing.html#tag-name-state
-    fn handle_tag_name(&self, c: Option<char>) -> ProcessResult {
+    fn handle_tag_name(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
                 '\t' | '\n' | '\x0C' | ' ' => ProcessResult::Switch(State::BeforeAttrName),
                 '/' => ProcessResult::Switch(State::SelfClosingStartTag),
                 '>' => ProcessResult::SwitchAndEmitToken(State::Data, self.cur_tag_token()),
                 _ => {
-                    self.cur_tag_name.borrow_mut().push(ch.to_ascii_lowercase());
+                    self.cur_tag_name.push(ch.to_ascii_lowercase());
                     ProcessResult::Continue
                 }
             },
@@ -364,35 +347,34 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn append_attr(&self) {
-        if self.cur_attr_name.borrow().is_empty() {
-            self.cur_attr_value.borrow_mut().clear();
+    fn append_attr(&mut self) {
+        if self.cur_attr_name.is_empty() {
+            self.cur_attr_value.clear();
             return;
         }
 
-        self.cur_tag_attrs.borrow_mut().push(Attr {
-            name: self.cur_attr_name.take(),
-            value: self.cur_attr_value.take(),
+        self.cur_tag_attrs.push(Attr {
+            name: std::mem::take(&mut self.cur_attr_name),
+            value: std::mem::take(&mut self.cur_attr_value),
         });
     }
 
-    fn cur_tag_token(&self) -> Token {
+    fn cur_tag_token(&mut self) -> Token {
         self.append_attr();
 
         let tag = Tag {
-            name: self.cur_tag_name.take(),
-            self_closing: self.cur_tag_self_closing.get(),
-            attrs: self.cur_tag_attrs.take(),
+            name: std::mem::take(&mut self.cur_tag_name),
+            self_closing: self.cur_tag_self_closing,
+            attrs: std::mem::take(&mut self.cur_tag_attrs),
         };
 
-        match self.cur_tag_type.get() {
+        match self.cur_tag_type {
             TagType::Start => Token::StartTag(tag),
             TagType::End => Token::EndTag(tag),
         }
     }
 
-    /// https://html.spec.whatwg.org/multipage/parsing.html#end-tag-open-state
-    fn handle_end_tag_open(&self, c: Option<char>) -> ProcessResult {
+    fn handle_end_tag_open(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
                 ch if ch.is_ascii_alphabetic() => {
@@ -415,8 +397,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    /// https://html.spec.whatwg.org/multipage/parsing.html#tag-open-state
-    fn handle_tag_open(&self, c: Option<char>) -> ProcessResult {
+    fn handle_tag_open(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some(ch) => match ch {
                 '!' => ProcessResult::Switch(State::Comment),
@@ -441,48 +422,32 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn create_end_tag(&self) {
-        self.cur_tag_type.set(TagType::End);
+    fn create_end_tag(&mut self) {
+        self.cur_tag_type = TagType::End;
         self.create_tag();
     }
 
-    fn create_start_tag(&self) {
-        self.cur_tag_type.set(TagType::Start);
+    fn create_start_tag(&mut self) {
+        self.cur_tag_type = TagType::Start;
         self.create_tag();
     }
 
-    fn create_tag(&self) {
-        self.cur_tag_name.borrow_mut().clear();
-        self.cur_tag_self_closing.set(false);
-        self.cur_tag_attrs.borrow_mut().clear();
+    fn create_tag(&mut self) {
+        self.cur_tag_name.clear();
+        self.cur_tag_self_closing = false;
+        self.cur_tag_attrs.clear();
         self.clear_attr();
     }
 
-    fn clear_attr(&self) {
-        self.cur_attr_name.borrow_mut().clear();
-        self.cur_attr_value.borrow_mut().clear();
+    fn clear_attr(&mut self) {
+        self.cur_attr_name.clear();
+        self.cur_attr_value.clear();
     }
 
-    /// https://html.spec.whatwg.org/multipage/parsing.html#data-state
-    fn handle_data(&self, c: Option<char>) -> ProcessResult {
+    fn handle_data(&mut self, c: Option<char>) -> ProcessResult {
         match c {
             Some('<') => ProcessResult::Switch(State::TagOpen),
-            Some(_) => {
-                let mut data = String::new();
-
-                loop {
-                    let next_char = self.input.borrow_mut().peek().copied();
-                    match next_char {
-                        Some('<') | None => break,
-                        Some(ch) => {
-                            data.push(ch);
-                            self.input.borrow_mut().next();
-                        }
-                    }
-                }
-
-                ProcessResult::EmitToken(Token::Text(data))
-            }
+            Some(ch) => ProcessResult::EmitToken(Token::Char(ch)),
             None => ProcessResult::EmitEOF,
         }
     }
@@ -497,7 +462,7 @@ mod tests {
     use super::*;
 
     fn collect_tokens(input: &str) -> Vec<Token> {
-        let tokenizer = Tokenizer::new(input);
+        let mut tokenizer = Tokenizer::new(input);
         let mut tokens = Vec::new();
         loop {
             let token = tokenizer.next();
@@ -536,7 +501,15 @@ mod tests {
     #[test]
     fn test_basic_text() {
         let tokens = collect_tokens("abc");
-        assert_eq!(tokens, vec![Token::Text("abc".to_string()), Token::EOF]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Char('a'),
+                Token::Char('b'),
+                Token::Char('c'),
+                Token::EOF
+            ]
+        );
     }
 
     #[test]
@@ -591,10 +564,7 @@ mod tests {
     #[test]
     fn test_invalid_tag_name_start() {
         let tokens = collect_tokens("<4");
-        assert_eq!(
-            tokens,
-            vec![Token::Char('<'), Token::Text("4".to_string()), Token::EOF]
-        );
+        assert_eq!(tokens, vec![Token::Char('<'), Token::Char('4'), Token::EOF]);
     }
 
     #[test]
