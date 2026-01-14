@@ -1,5 +1,5 @@
 use crate::{
-    dom::{Node, NodePtr, NodeType},
+    dom::{Atom, Node, NodePtr, NodeType},
     parser::html::{Token, Tokenizer, tokenizer::Tag},
 };
 
@@ -91,7 +91,9 @@ impl<'a> HTMLParser<'a> {
     fn handle_after_after_body(&mut self, token: Token) -> ProcessResult {
         match token {
             Token::Char(ch) if self.is_whitespace(ch) => self.handle_in_body(token),
-            Token::StartTag(tag) if tag.name == "html" => self.handle_in_body(Token::StartTag(tag)),
+            Token::StartTag(tag) if &tag.name == "html" => {
+                self.handle_in_body(Token::StartTag(tag))
+            }
             Token::EOF => ProcessResult::Stop,
             _ => {
                 self.print_parse_error("handle_after_after_body unexpected token");
@@ -104,8 +106,10 @@ impl<'a> HTMLParser<'a> {
     fn handle_after_body(&mut self, token: Token) -> ProcessResult {
         match token {
             Token::Char(ch) if self.is_whitespace(ch) => self.handle_in_body(token),
-            Token::StartTag(tag) if tag.name == "html" => self.handle_in_body(Token::StartTag(tag)),
-            Token::EndTag(tag) if tag.name == "html" => {
+            Token::StartTag(tag) if &tag.name == "html" => {
+                self.handle_in_body(Token::StartTag(tag))
+            }
+            Token::EndTag(tag) if &tag.name == "html" => {
                 ProcessResult::Switch(InsertionMode::AfterAfterBody)
             }
             Token::EOF => ProcessResult::Stop,
@@ -144,33 +148,33 @@ impl<'a> HTMLParser<'a> {
                 self.insert_char(ch);
                 ProcessResult::Continue
             }
-            Token::StartTag(tag) if tag.name == "html" => {
+            Token::StartTag(tag) if &tag.name == "html" => {
                 self.print_parse_error("handle_in_body unexpected start tag: html");
                 ProcessResult::Ignore
             }
             Token::StartTag(tag)
-                if tag.name == "base"
-                    || tag.name == "basefont"
-                    || tag.name == "bgsound"
-                    || tag.name == "link"
-                    || tag.name == "meta"
-                    || tag.name == "noframes"
-                    || tag.name == "script"
-                    || tag.name == "style"
-                    || tag.name == "template"
-                    || tag.name == "title" =>
+                if &tag.name == "base"
+                    || &tag.name == "basefont"
+                    || &tag.name == "bgsound"
+                    || &tag.name == "link"
+                    || &tag.name == "meta"
+                    || &tag.name == "noframes"
+                    || &tag.name == "script"
+                    || &tag.name == "style"
+                    || &tag.name == "template"
+                    || &tag.name == "title" =>
             {
                 self.handle_in_head(Token::StartTag(tag))
             }
-            Token::StartTag(tag) if tag.name == "body" => {
+            Token::StartTag(tag) if &tag.name == "body" => {
                 self.print_parse_error("handle_in_body unexpected start tag: body");
                 ProcessResult::Ignore
             }
             Token::EOF => ProcessResult::Stop,
-            Token::EndTag(tag) if tag.name == "body" => {
+            Token::EndTag(tag) if &tag.name == "body" => {
                 ProcessResult::Switch(InsertionMode::AfterBody)
             }
-            Token::EndTag(tag) if tag.name == "html" => {
+            Token::EndTag(tag) if &tag.name == "html" => {
                 ProcessResult::Reprocess(InsertionMode::AfterBody, Token::EndTag(tag))
             }
             Token::StartTag(tag) => {
@@ -197,20 +201,24 @@ impl<'a> HTMLParser<'a> {
                 self.insert_char(ch);
                 ProcessResult::Continue
             }
-            Token::StartTag(tag) if tag.name == "html" => self.handle_in_body(Token::StartTag(tag)),
-            Token::StartTag(tag) if tag.name == "body" => {
+            Token::StartTag(tag) if &tag.name == "html" => {
+                self.handle_in_body(Token::StartTag(tag))
+            }
+            Token::StartTag(tag) if &tag.name == "body" => {
                 self.insert_html_elem(tag);
                 ProcessResult::Switch(InsertionMode::InBody)
             }
-            Token::EndTag(tag) if tag.name == "body" || tag.name == "html" || tag.name == "br" => {
+            Token::EndTag(tag)
+                if &tag.name == "body" || &tag.name == "html" || &tag.name == "br" =>
+            {
                 self.insert_html_elem(Tag {
-                    name: String::from("body"),
+                    name: Atom::from("body"),
                     self_closing: false,
                     attrs: Vec::new(),
                 });
                 ProcessResult::Reprocess(InsertionMode::InBody, Token::EndTag(tag))
             }
-            Token::StartTag(tag) if tag.name == "head" => {
+            Token::StartTag(tag) if &tag.name == "head" => {
                 self.print_parse_error("handle_after_head unexpected start tag: head");
                 ProcessResult::Ignore
             }
@@ -223,7 +231,7 @@ impl<'a> HTMLParser<'a> {
             }
             _ => {
                 self.insert_html_elem(Tag {
-                    name: String::from("body"),
+                    name: Atom::from("body"),
                     self_closing: false,
                     attrs: Vec::new(),
                 });
@@ -239,19 +247,21 @@ impl<'a> HTMLParser<'a> {
                 self.insert_char(ch);
                 ProcessResult::Continue
             }
-            Token::StartTag(tag) if tag.name == "html" => self.handle_in_body(Token::StartTag(tag)),
+            Token::StartTag(tag) if &tag.name == "html" => {
+                self.handle_in_body(Token::StartTag(tag))
+            }
             Token::StartTag(mut tag)
-                if tag.name == "meta" || SELF_CLOSING_HEAD_TAGS.contains(&tag.name.as_str()) =>
+                if &tag.name == "meta" || SELF_CLOSING_HEAD_TAGS.contains(&tag.name.as_ref()) =>
             {
                 tag.self_closing = true;
                 self.insert_html_elem(tag);
                 ProcessResult::Continue
             }
             Token::StartTag(tag)
-                if tag.name == "title"
-                    || tag.name == "noscript"
-                    || tag.name == "noframes"
-                    || tag.name == "style" =>
+                if &tag.name == "title"
+                    || &tag.name == "noscript"
+                    || &tag.name == "noframes"
+                    || &tag.name == "style" =>
             {
                 // https://html.spec.whatwg.org/multipage/parsing.html#generic-rcdata-element-parsing-algorithm
                 // https://html.spec.whatwg.org/multipage/parsing.html#generic-raw-text-element-parsing-algorithm
@@ -259,15 +269,17 @@ impl<'a> HTMLParser<'a> {
                 self.orig_mode = InsertionMode::InHead;
                 ProcessResult::Switch(InsertionMode::Text)
             }
-            Token::EndTag(tag) if tag.name == "head" => {
+            Token::EndTag(tag) if &tag.name == "head" => {
                 self.open_elems.pop();
                 ProcessResult::Switch(InsertionMode::AfterHead)
             }
-            Token::EndTag(tag) if tag.name == "body" || tag.name == "html" || tag.name == "br" => {
+            Token::EndTag(tag)
+                if &tag.name == "body" || &tag.name == "html" || &tag.name == "br" =>
+            {
                 self.open_elems.pop();
                 ProcessResult::Reprocess(InsertionMode::AfterHead, Token::EndTag(tag))
             }
-            Token::StartTag(tag) if tag.name == "head" => {
+            Token::StartTag(tag) if &tag.name == "head" => {
                 self.print_parse_error("handle_in_head unexpected start tag: head");
                 ProcessResult::Ignore
             }
@@ -307,15 +319,17 @@ impl<'a> HTMLParser<'a> {
     fn handle_before_head(&mut self, token: Token) -> ProcessResult {
         match token {
             Token::Char(ch) if self.is_whitespace(ch) => ProcessResult::Ignore,
-            Token::StartTag(tag) if tag.name == "html" => self.handle_in_body(Token::StartTag(tag)),
-            Token::StartTag(tag) if tag.name == "head" => {
+            Token::StartTag(tag) if &tag.name == "html" => {
+                self.handle_in_body(Token::StartTag(tag))
+            }
+            Token::StartTag(tag) if &tag.name == "head" => {
                 let head = self.insert_html_elem(tag);
                 self.head = Some(head);
                 ProcessResult::Switch(InsertionMode::InHead)
             }
-            Token::EndTag(tag) if IMPLICIT_TAGS.contains(&tag.name.as_str()) => {
+            Token::EndTag(tag) if IMPLICIT_TAGS.contains(&tag.name.as_ref()) => {
                 let head = self.insert_html_elem(Tag {
-                    name: String::from("head"),
+                    name: Atom::from("head"),
                     self_closing: false,
                     attrs: Vec::new(),
                 });
@@ -331,7 +345,7 @@ impl<'a> HTMLParser<'a> {
             }
             _ => {
                 let head = self.insert_html_elem(Tag {
-                    name: String::from("head"),
+                    name: Atom::from("head"),
                     self_closing: false,
                     attrs: Vec::new(),
                 });
@@ -350,13 +364,13 @@ impl<'a> HTMLParser<'a> {
     fn handle_before_html(&mut self, token: Token) -> ProcessResult {
         match token {
             Token::Char(ch) if self.is_whitespace(ch) => ProcessResult::Ignore,
-            Token::StartTag(tag) if tag.name == "html" => {
+            Token::StartTag(tag) if &tag.name == "html" => {
                 self.create_elem_for_token(tag);
                 ProcessResult::Switch(InsertionMode::BeforeHead)
             }
-            Token::EndTag(tag) if IMPLICIT_TAGS.contains(&tag.name.as_str()) => {
+            Token::EndTag(tag) if IMPLICIT_TAGS.contains(&tag.name.as_ref()) => {
                 self.create_elem_for_token(Tag {
-                    name: String::from("html"),
+                    name: Atom::from("html"),
                     self_closing: false,
                     attrs: Vec::new(),
                 });
@@ -371,7 +385,7 @@ impl<'a> HTMLParser<'a> {
             }
             _ => {
                 self.create_elem_for_token(Tag {
-                    name: String::from("html"),
+                    name: Atom::from("html"),
                     self_closing: false,
                     attrs: Vec::new(),
                 });
@@ -393,7 +407,7 @@ impl<'a> HTMLParser<'a> {
             attrs,
         } = tag;
 
-        let is_void_tag = VOID_TAGS.contains(&name.as_str());
+        let is_void_tag = VOID_TAGS.contains(&name.as_ref());
 
         let elem = Node::new_elem(
             Some(parent_ptr),

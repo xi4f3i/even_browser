@@ -3,7 +3,7 @@ use std::{
     ptr::NonNull,
 };
 
-use crate::dom::{Attr, Document, Element, Text};
+use crate::dom::{Atom, Attr, Document, Element, Text};
 
 pub(crate) type NodePtr = NonNull<Node>;
 
@@ -40,7 +40,7 @@ impl Node {
     pub(crate) fn new_elem(
         parent: Option<NodePtr>,
         prev_sibling: Option<NodePtr>,
-        name: String,
+        name: Atom,
         self_closing: bool,
         attrs: Vec<Attr>,
     ) -> NodePtr {

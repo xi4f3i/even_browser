@@ -1,16 +1,16 @@
 use std::cell::{Cell, Ref, RefCell};
 
-use crate::dom::Attr;
+use crate::dom::{Atom, Attr};
 
 /// https://dom.spec.whatwg.org/#interface-element
 pub(crate) struct Element {
-    name: RefCell<String>,
+    name: RefCell<Atom>,
     self_closing: Cell<bool>,
     attrs: RefCell<Vec<Attr>>,
 }
 
 impl Element {
-    pub(crate) fn new(name: String, self_closing: bool, attrs: Vec<Attr>) -> Element {
+    pub(crate) fn new(name: Atom, self_closing: bool, attrs: Vec<Attr>) -> Element {
         Element {
             name: RefCell::new(name),
             self_closing: Cell::new(self_closing),
@@ -19,7 +19,7 @@ impl Element {
     }
 
     /// https://dom.spec.whatwg.org/#dom-element-tagname
-    pub(crate) fn tag_name(&self) -> Ref<'_, String> {
+    pub(crate) fn tag_name(&self) -> Ref<'_, Atom> {
         self.name.borrow()
     }
 

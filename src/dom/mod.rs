@@ -9,3 +9,4 @@ pub(crate) use document::Document;
 pub(crate) use element::Element;
 pub(crate) use node::{Node, NodePtr, NodeType};
 pub(crate) use text::Text;
+pub type Atom = string_cache::DefaultAtom;

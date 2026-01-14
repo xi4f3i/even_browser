@@ -40,7 +40,7 @@ mod tests {
     fn assert_elem(node: NodePtr, expected_tag: &str) {
         match &*unsafe { node.as_ref().node_type() } {
             NodeType::Element(e) => {
-                assert_eq!(*e.tag_name(), expected_tag, "Tag name mismatch");
+                assert_eq!(&*e.tag_name(), expected_tag, "Tag name mismatch");
             }
             _ => panic!("Expected Element node, found {:?}", node_type_name(node)),
         }
@@ -59,7 +59,7 @@ mod tests {
         match &*unsafe { node.as_ref().node_type() } {
             NodeType::Element(e) => {
                 let attrs = e.attributes();
-                let attr = attrs.iter().find(|a| a.name == key);
+                let attr = attrs.iter().find(|a| &a.name == key);
                 assert!(attr.is_some(), "Attribute {} not found", key);
                 assert_eq!(attr.unwrap().value, value, "Attribute value mismatch");
             }
@@ -203,7 +203,7 @@ mod tests {
         let mut curr = unsafe { body.as_ref().first_child() };
         while let Some(ptr) = curr {
             if let NodeType::Element(e) = &*unsafe { ptr.as_ref().node_type() } {
-                if *e.tag_name() == "div" {
+                if &*e.tag_name() == "div" {
                     found_div = true;
                     let content = get_child(ptr, 0);
                     assert_text(content, "  content  ");

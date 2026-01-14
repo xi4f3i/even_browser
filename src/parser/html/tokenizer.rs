@@ -1,6 +1,6 @@
 use std::{iter::Peekable, str::Chars};
 
-use crate::dom::Attr;
+use crate::dom::{Atom, Attr};
 
 pub(crate) enum ProcessResult {
     Continue,
@@ -21,7 +21,7 @@ enum TagType {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Tag {
-    pub(crate) name: String,
+    pub(crate) name: Atom,
     pub(crate) self_closing: bool,
     pub(crate) attrs: Vec<Attr>,
 }
@@ -354,19 +354,23 @@ impl<'a> Tokenizer<'a> {
         }
 
         self.cur_tag_attrs.push(Attr {
-            name: std::mem::take(&mut self.cur_attr_name),
+            name: Atom::from(&*self.cur_attr_name),
             value: std::mem::take(&mut self.cur_attr_value),
         });
+
+        self.cur_attr_name.clear();
     }
 
     fn cur_tag_token(&mut self) -> Token {
         self.append_attr();
 
         let tag = Tag {
-            name: std::mem::take(&mut self.cur_tag_name),
+            name: Atom::from(&*self.cur_tag_name),
             self_closing: self.cur_tag_self_closing,
             attrs: std::mem::take(&mut self.cur_tag_attrs),
         };
+
+        self.cur_tag_name.clear();
 
         match self.cur_tag_type {
             TagType::Start => Token::StartTag(tag),
@@ -477,14 +481,14 @@ mod tests {
 
     fn attr(name: &str, value: &str) -> Attr {
         Attr {
-            name: name.to_string(),
+            name: Atom::from(name),
             value: value.to_string(),
         }
     }
 
     fn start_tag(name: &str, attributes: Vec<Attr>, self_closing: bool) -> Token {
         Token::StartTag(Tag {
-            name: name.to_string(),
+            name: Atom::from(name),
             self_closing,
             attrs: attributes,
         })
@@ -492,7 +496,7 @@ mod tests {
 
     fn end_tag(name: &str) -> Token {
         Token::EndTag(Tag {
-            name: name.to_string(),
+            name: Atom::from(name),
             self_closing: false,
             attrs: Vec::new(),
         })
