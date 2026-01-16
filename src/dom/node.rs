@@ -41,7 +41,6 @@ impl Node {
         parent: Option<NodePtr>,
         prev_sibling: Option<NodePtr>,
         name: Atom,
-        self_closing: bool,
         attrs: Vec<Attr>,
     ) -> NodePtr {
         unsafe {
@@ -51,7 +50,7 @@ impl Node {
                 next_sibling: Cell::new(None),
                 first_child: Cell::new(None),
                 last_child: Cell::new(None),
-                data: RefCell::new(NodeType::Element(Element::new(name, self_closing, attrs))),
+                data: RefCell::new(NodeType::Element(Element::new(name, attrs))),
             })))
         }
     }
@@ -71,10 +70,6 @@ impl Node {
                 data: RefCell::new(NodeType::Text(Text::new(ch))),
             })))
         }
-    }
-
-    pub(crate) fn as_ptr(&self) -> NodePtr {
-        NonNull::from(self)
     }
 
     /// https://dom.spec.whatwg.org/#dom-node-nodetype
@@ -129,5 +124,31 @@ impl Node {
 
     pub(crate) fn set_last_child(&self, node: NodePtr) {
         self.last_child.set(Some(node));
+    }
+
+    pub(crate) fn print(&self, depth: usize) {
+        let indent = "  ".repeat(depth);
+
+        println!("{}{}", indent, self);
+
+        let mut child_ptr = self.first_child.get();
+
+        while let Some(p) = child_ptr {
+            let child = unsafe { p.as_ref() };
+
+            child.print(depth + 1);
+
+            child_ptr = child.next_sibling.get();
+        }
+    }
+}
+
+impl std::fmt::Display for Node {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &*self.data.borrow() {
+            NodeType::Document(_) => write!(f, "#document"),
+            NodeType::Element(elem) => write!(f, "#{}", elem.tag_name()),
+            NodeType::Text(text) => write!(f, "#text: {}", text.data()),
+        }
     }
 }

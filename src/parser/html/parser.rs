@@ -422,13 +422,7 @@ impl<'a> HTMLParser<'a> {
 
         let is_void_tag = VOID_TAGS.contains(&name.as_ref());
 
-        let elem = Node::new_elem(
-            Some(parent_ptr),
-            prev_sibling_ptr,
-            name,
-            self_closing,
-            attrs,
-        );
+        let elem = Node::new_elem(Some(parent_ptr), prev_sibling_ptr, name, attrs);
 
         parent.append_child(elem);
 

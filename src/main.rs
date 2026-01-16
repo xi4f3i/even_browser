@@ -1,3 +1,5 @@
+use even_browser::browser::run;
+
 fn main() {
-    println!("Hello, world!");
+    run("https://browser.engineering/styles.html");
 }
