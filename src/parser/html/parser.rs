@@ -307,27 +307,6 @@ impl<'a> HTMLParser<'a> {
         ProcessResult::Switch(InsertionMode::Text)
     }
 
-    /// https://html.spec.whatwg.org/multipage/parsing.html#insert-a-character
-    fn insert_char(&mut self, ch: char) {
-        let parent_ptr = self.cur_node();
-        let parent = unsafe { parent_ptr.as_ref() };
-
-        if matches!(*parent.node_type(), NodeType::Document(_)) {
-            return;
-        }
-
-        let child_ptr = parent.last_child();
-        if let Some(child) = child_ptr
-            && let child = unsafe { child.as_ref() }
-            && let NodeType::Text(t) = &*child.node_type()
-        {
-            t.append_data(ch);
-        } else {
-            let text = Node::new_text(Some(parent_ptr), child_ptr, ch);
-            parent.append_child(text);
-        }
-    }
-
     /// https://html.spec.whatwg.org/multipage/parsing.html#the-before-head-insertion-mode
     fn handle_before_head(&mut self, token: Token) -> ProcessResult {
         match token {
@@ -368,11 +347,6 @@ impl<'a> HTMLParser<'a> {
         }
     }
 
-    /// https://html.spec.whatwg.org/multipage/parsing.html#insert-an-html-element
-    fn insert_html_elem(&mut self, tag: Tag) -> NodePtr {
-        self.create_elem_for_token(tag)
-    }
-
     /// https://html.spec.whatwg.org/multipage/parsing.html#the-before-html-insertion-mode
     fn handle_before_html(&mut self, token: Token) -> ProcessResult {
         match token {
@@ -405,6 +379,40 @@ impl<'a> HTMLParser<'a> {
                 ProcessResult::Reprocess(InsertionMode::BeforeHead, token)
             }
         }
+    }
+
+    /// https://html.spec.whatwg.org/multipage/parsing.html#the-initial-insertion-mode
+    fn handle_initial(&self, token: Token) -> ProcessResult {
+        match token {
+            Token::Char(ch) if self.is_whitespace(ch) => ProcessResult::Ignore,
+            _ => ProcessResult::Reprocess(InsertionMode::BeforeHtml, token),
+        }
+    }
+
+    /// https://html.spec.whatwg.org/multipage/parsing.html#insert-a-character
+    fn insert_char(&mut self, ch: char) {
+        let parent_ptr = self.cur_node();
+        let parent = unsafe { parent_ptr.as_ref() };
+
+        if matches!(*parent.node_type(), NodeType::Document(_)) {
+            return;
+        }
+
+        let child_ptr = parent.last_child();
+        if let Some(child) = child_ptr
+            && let child = unsafe { child.as_ref() }
+            && let NodeType::Text(t) = &*child.node_type()
+        {
+            t.append_data(ch);
+        } else {
+            let text = Node::new_text(Some(parent_ptr), child_ptr, ch);
+            parent.append_child(text);
+        }
+    }
+
+    /// https://html.spec.whatwg.org/multipage/parsing.html#insert-an-html-element
+    fn insert_html_elem(&mut self, tag: Tag) -> NodePtr {
+        self.create_elem_for_token(tag)
     }
 
     /// https://html.spec.whatwg.org/multipage/parsing.html#create-an-element-for-the-token
@@ -441,19 +449,13 @@ impl<'a> HTMLParser<'a> {
             .expect("open_elems is empty")
     }
 
-    /// https://html.spec.whatwg.org/multipage/parsing.html#the-initial-insertion-mode
-    fn handle_initial(&self, token: Token) -> ProcessResult {
-        match token {
-            Token::Char(ch) if self.is_whitespace(ch) => ProcessResult::Ignore,
-            _ => ProcessResult::Reprocess(InsertionMode::BeforeHtml, token),
-        }
-    }
-
+    #[inline]
     fn is_whitespace(&self, ch: char) -> bool {
-        ch == '\t' || ch == '\n' || ch == '\x0C' || ch == '\r' || ch == ' '
+        ['\t', '\n', '\x0C', ' ', '\r'].contains(&ch)
     }
 
     /// https://html.spec.whatwg.org/multipage/parsing.html#parse-errors
+    #[inline]
     fn print_parse_error(&self, msg: &str) {
         println!("[HTMLParser] Parse error: {}", msg);
     }

@@ -92,6 +92,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    #[inline]
     pub(crate) fn switch(&mut self, state: State) {
         self.state = state;
     }
@@ -256,10 +257,6 @@ impl<'a> Tokenizer<'a> {
             }
             _ => ProcessResult::ReconsumeAndEmitToken(State::RawText, Token::Char('<')),
         }
-    }
-
-    fn is_whitespace(&self, ch: char) -> bool {
-        ch == '\t' || ch == '\n' || ch == '\x0C' || ch == ' '
     }
 
     /// https://html.spec.whatwg.org/multipage/parsing.html#rcdata-end-tag-name-state
@@ -549,10 +546,6 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn create_attr(&mut self) {
-        self.append_attr();
-    }
-
     /// https://html.spec.whatwg.org/multipage/parsing.html#tag-name-state
     fn handle_tag_name(&mut self, c: Option<char>) -> ProcessResult {
         match c {
@@ -568,42 +561,6 @@ impl<'a> Tokenizer<'a> {
                 ProcessResult::EmitEOF
             }
         }
-    }
-
-    fn append_attr(&mut self) {
-        if self.cur_attr_name.is_empty() {
-            self.cur_attr_value.clear();
-            return;
-        }
-
-        self.cur_tag_attrs.push(Attr {
-            name: Atom::from(&*self.cur_attr_name),
-            value: std::mem::take(&mut self.cur_attr_value),
-        });
-
-        self.cur_attr_name.clear();
-    }
-
-    fn cur_tag_token(&mut self) -> Token {
-        self.append_attr();
-
-        let tag = Tag {
-            name: Atom::from(&*self.cur_tag_name),
-            self_closing: self.cur_tag_self_closing,
-            attrs: std::mem::take(&mut self.cur_tag_attrs),
-        };
-
-        let token = match self.cur_tag_type {
-            TagType::Start => {
-                self.last_start_tag_name = Some(Atom::from(&*self.cur_tag_name));
-                Token::StartTag(tag)
-            }
-            TagType::End => Token::EndTag(tag),
-        };
-
-        self.cur_tag_name.clear();
-
-        token
     }
 
     /// https://html.spec.whatwg.org/multipage/parsing.html#end-tag-open-state
@@ -656,6 +613,55 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// https://html.spec.whatwg.org/multipage/parsing.html#data-state
+    fn handle_data(&mut self, c: Option<char>) -> ProcessResult {
+        match c {
+            Some('<') => ProcessResult::Switch(State::TagOpen),
+            Some(ch) => ProcessResult::EmitChar(ch),
+            None => ProcessResult::EmitEOF,
+        }
+    }
+
+    fn create_attr(&mut self) {
+        self.append_attr();
+    }
+
+    fn append_attr(&mut self) {
+        if self.cur_attr_name.is_empty() {
+            self.cur_attr_value.clear();
+            return;
+        }
+
+        self.cur_tag_attrs.push(Attr {
+            name: Atom::from(&*self.cur_attr_name),
+            value: std::mem::take(&mut self.cur_attr_value),
+        });
+
+        self.cur_attr_name.clear();
+    }
+
+    fn cur_tag_token(&mut self) -> Token {
+        self.append_attr();
+
+        let tag = Tag {
+            name: Atom::from(&*self.cur_tag_name),
+            self_closing: self.cur_tag_self_closing,
+            attrs: std::mem::take(&mut self.cur_tag_attrs),
+        };
+
+        let token = match self.cur_tag_type {
+            TagType::Start => {
+                self.last_start_tag_name = Some(Atom::from(&*self.cur_tag_name));
+                Token::StartTag(tag)
+            }
+            TagType::End => Token::EndTag(tag),
+        };
+
+        self.cur_tag_name.clear();
+
+        token
+    }
+
     fn create_end_tag(&mut self) {
         self.cur_tag_type = TagType::End;
         self.create_tag();
@@ -678,15 +684,12 @@ impl<'a> Tokenizer<'a> {
         self.cur_attr_value.clear();
     }
 
-    /// https://html.spec.whatwg.org/multipage/parsing.html#data-state
-    fn handle_data(&mut self, c: Option<char>) -> ProcessResult {
-        match c {
-            Some('<') => ProcessResult::Switch(State::TagOpen),
-            Some(ch) => ProcessResult::EmitChar(ch),
-            None => ProcessResult::EmitEOF,
-        }
+    #[inline]
+    fn is_whitespace(&self, ch: char) -> bool {
+        ['\t', '\n', '\x0C', ' '].contains(&ch)
     }
 
+    #[inline]
     fn print_parse_error(&self, err: &str) {
         println!("[Tokenizer] Parse error: {}", err);
     }
