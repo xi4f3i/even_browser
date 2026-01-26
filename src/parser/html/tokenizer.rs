@@ -120,7 +120,7 @@ impl<'a> Tokenizer<'a> {
                     self.switch(state);
                     let token = tokens
                         .pop()
-                        .expect("[Tokenizer] tokens should not be empty");
+                        .expect("[HTML Tokenizer] tokens should not be empty");
                     self.pending_tokens = tokens;
                     return token;
                 }
@@ -144,7 +144,7 @@ impl<'a> Tokenizer<'a> {
                     self.input.next();
                     let token = tokens
                         .pop()
-                        .expect("[Tokenizer] tokens should not be empty");
+                        .expect("[HTML Tokenizer] tokens should not be empty");
                     self.pending_tokens = tokens;
                     return token;
                 }
@@ -691,7 +691,7 @@ impl<'a> Tokenizer<'a> {
 
     #[inline]
     fn print_parse_error(&self, err: &str) {
-        println!("[Tokenizer] Parse error: {}", err);
+        println!("[HTML Tokenizer] Parse error: {}", err);
     }
 }
 

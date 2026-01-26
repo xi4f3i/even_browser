@@ -446,7 +446,7 @@ impl<'a> HTMLParser<'a> {
         self.open_elems
             .last()
             .copied()
-            .expect("open_elems is empty")
+            .expect("[HTML Parser] open_elems is empty")
     }
 
     #[inline]
@@ -457,6 +457,6 @@ impl<'a> HTMLParser<'a> {
     /// https://html.spec.whatwg.org/multipage/parsing.html#parse-errors
     #[inline]
     fn print_parse_error(&self, msg: &str) {
-        println!("[HTMLParser] Parse error: {}", msg);
+        println!("[HTML Parser] Parse error: {}", msg);
     }
 }
