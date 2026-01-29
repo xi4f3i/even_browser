@@ -1,12 +1,30 @@
 use std::borrow::Cow;
 
+pub(crate) enum NumberType {
+    Integer,
+    Number,
+}
+
 pub(crate) enum Token<'a> {
     Whitespace(&'a str),
     String(Cow<'a, str>),
     BadString(Cow<'a, str>),
     Hash(Cow<'a, str>),
     IDHash(Cow<'a, str>),
+    Ident(Cow<'a, str>),
+    Function(Cow<'a, str>),
+    UnquotedURL(Cow<'a, str>),
+    BadURL(Cow<'a, str>),
+    SuffixMatch,
+    Parenthesis,
+    CloasParenthesis,
+    SubstringMatch,
+    Percentage(f64, Option<char>),
+    Number(f64, NumberType, Option<char>),
+    Dimension(f64, NumberType, Option<char>, Cow<'a, str>),
     Delim(char),
+    Comma,
+    CDC,
     EOF,
 }
 
@@ -72,6 +90,10 @@ impl<'a> Tokenizer<'a> {
         println!("[CSS Tokenizer] Parse error: {}", err);
     }
 
+    fn start_with(&self, needle: &[u8]) -> bool {
+        self.input.as_bytes()[self.pos..].starts_with(needle)
+    }
+
     /// https://drafts.csswg.org/css-syntax/#consume-token
     pub(crate) fn next(&mut self) -> Token<'a> {
         if self.is_eof() {
@@ -86,8 +108,347 @@ impl<'a> Tokenizer<'a> {
             b'"' => self.consume_string(false),
             b'\'' => self.consume_string(true),
             b'#' => self.consume_hash(),
+            b'$' => {
+                if self.start_with(b"$=") {
+                    self.advance(2);
+                    Token::SuffixMatch
+                } else {
+                    self.advance(1);
+                    Token::Delim('$')
+                }
+            }
+            b'(' => {
+                self.advance(1);
+                Token::Parenthesis
+            }
+            b')' => {
+                self.advance(1);
+                Token::CloasParenthesis
+            }
+            b'*' => {
+                if self.start_with(b"*=") {
+                    self.advance(2);
+                    Token::SubstringMatch
+                } else {
+                    self.advance(1);
+                    Token::Delim('*')
+                }
+            }
+            b'+' => {
+                if (self.has_at_least(1) && self.byte_at(1).is_ascii_digit())
+                    || (self.has_at_least(2)
+                        && self.byte_at(1) == b'.'
+                        && self.byte_at(2).is_ascii_digit())
+                {
+                    self.consume_numeric()
+                } else {
+                    self.advance(1);
+                    Token::Delim('+')
+                }
+            }
+            b',' => {
+                self.advance(1);
+                Token::Comma
+            }
+            b'-' => {
+                if (self.has_at_least(1) && self.byte_at(1).is_ascii_digit())
+                    || (self.has_at_least(2)
+                        && self.byte_at(1) == b'.'
+                        && self.byte_at(2).is_ascii_digit())
+                {
+                    self.consume_numeric()
+                } else if self.start_with(b"-->") {
+                    self.advance(3);
+                    Token::CDC
+                } else if self.is_ident_start() {
+                    self.consume_ident_like()
+                } else {
+                    self.advance(1);
+                    Token::Delim('-')
+                }
+            }
             _ => todo!(),
         }
+    }
+
+    /// https://drafts.csswg.org/css-syntax/#consume-ident-like-token
+    fn consume_ident_like(&mut self) -> Token<'a> {
+        let value = self.consume_name();
+
+        if !self.is_eof() && self.next_byte_unchecked() == b'(' {
+            self.advance(1);
+            if value.eq_ignore_ascii_case("url") {
+                self.consume_unquoted_url()
+                    .unwrap_or(Token::Function(value))
+            } else {
+                Token::Function(value)
+            }
+        } else {
+            Token::Ident(value)
+        }
+    }
+
+    /// https://drafts.csswg.org/css-syntax/#consume-url-token
+    fn consume_unquoted_url(&mut self) -> Result<Token<'a>, ()> {
+        let start_pos = self.pos;
+        let from_start = &self.input[self.pos..];
+        let mut found_printable_char = false;
+        let mut iter = from_start.bytes().enumerate();
+
+        loop {
+            let (offset, b) = match iter.next() {
+                Some(i) => i,
+                None => {
+                    self.pos = self.input.len();
+                    break;
+                }
+            };
+
+            match b {
+                b' ' | b'\t' | b'\n' | b'\x0C' | b'\r' => {}
+                b'"' | b'\'' => return Err(()),
+                b')' => {
+                    self.advance(offset + 1);
+                    break;
+                }
+                _ => {
+                    self.advance(offset);
+                    found_printable_char = true;
+                    break;
+                }
+            }
+        }
+
+        if found_printable_char {
+            Ok(self.consume_unquoted_url_internal())
+        } else {
+            Ok(Token::UnquotedURL("".into()))
+        }
+    }
+
+    fn consume_unquoted_url_internal(&mut self) -> Token<'a> {
+        let start_pos = self.pos;
+        let mut str_bytes: Vec<u8>;
+        loop {
+            if self.is_eof() {
+                return Token::UnquotedURL(self.slice_from(start_pos).into());
+            }
+
+            match self.next_byte_unchecked() {
+                b' ' | b'\t' | b'\n' | b'\r' | b'\x0C' => {
+                    return self.consume_url_end(start_pos, self.slice_from(start_pos).into());
+                }
+                b')' => {
+                    let value = self.slice_from(start_pos);
+                    self.advance(1);
+                    return Token::UnquotedURL(value.into());
+                }
+                b'\x01'..=b'\x08' | b'\x0B' | b'\x0E'..=b'\x1F' | b'\x7F' | b'"' | b'\'' | b'(' => {
+                    self.advance(1);
+                    return self.consume_bad_url(start_pos);
+                }
+                b'\\' | b'\0' => {
+                    str_bytes = self.slice_from(start_pos).as_bytes().to_owned();
+                    break;
+                }
+                _ => {
+                    self.advance(1);
+                }
+            }
+        }
+
+        while !self.is_eof() {
+            let b = self.next_byte_unchecked();
+
+            match b {
+                b' ' | b'\t' | b'\n' | b'\r' | b'\x0C' => {
+                    let s = unsafe { String::from_utf8_unchecked(str_bytes) }.into();
+                    return self.consume_url_end(start_pos, s);
+                }
+                b')' => {
+                    self.advance(1);
+                    break;
+                }
+                b'\x01'..=b'\x08' | b'\x0B' | b'\x0E'..=b'\x1F' | b'\x7F' | b'"' | b'\'' | b'(' => {
+                    self.advance(1);
+                    return self.consume_bad_url(start_pos);
+                }
+                b'\\' => {
+                    self.advance(1);
+                    if self.has_newline_at(0) {
+                        return self.consume_bad_url(start_pos);
+                    }
+
+                    let c = self.consume_escaped_code_point();
+                    str_bytes.extend(c.encode_utf8(&mut [0; 4]).as_bytes());
+                }
+                b'\0' => {
+                    self.advance(1);
+                    str_bytes.extend("\u{FFFD}".as_bytes());
+                }
+                b => {
+                    self.advance(1);
+                    str_bytes.push(b);
+                }
+            }
+        }
+
+        Token::UnquotedURL(unsafe { String::from_utf8_unchecked(str_bytes) }.into())
+    }
+
+    /// https://drafts.csswg.org/css-syntax/#consume-the-remnants-of-a-bad-url
+    fn consume_bad_url(&mut self, start_pos: usize) -> Token<'a> {
+        while !self.is_eof() {
+            match self.next_byte_unchecked() {
+                b')' => {
+                    let value = self.slice_from(start_pos).into();
+                    self.advance(1);
+                    return Token::BadURL(value);
+                }
+                b'\\' => {
+                    self.advance(1);
+                    if matches!(self.next_byte(), Some(b')') | Some(b'\\')) {
+                        self.advance(1);
+                    }
+                }
+                b'\n' | b'\x0C' | b'\r' => {
+                    self.consume_newline();
+                }
+                _ => {
+                    self.advance(1);
+                }
+            }
+        }
+        Token::BadURL(self.slice_from(start_pos).into())
+    }
+
+    fn consume_url_end(&mut self, start_pos: usize, s: Cow<'a, str>) -> Token<'a> {
+        while !self.is_eof() {
+            match self.next_byte_unchecked() {
+                b')' => {
+                    self.advance(1);
+                    break;
+                }
+                b' ' | b'\t' => {
+                    self.advance(1);
+                }
+                b'\n' | b'\x0C' | b'\r' => {
+                    self.consume_newline();
+                }
+                _ => {
+                    self.advance(1);
+                    return self.consume_bad_url(start_pos);
+                }
+            }
+        }
+        Token::UnquotedURL(s)
+    }
+
+    /// https://drafts.csswg.org/css-syntax/#consume-numeric-token
+    fn consume_numeric(&mut self) -> Token<'a> {
+        let (value, num_type, sign) = self.consume_number();
+
+        if !self.is_eof() && self.next_byte_unchecked() == b'%' {
+            self.advance(1);
+            Token::Percentage(value, sign)
+        } else if self.is_ident_start() {
+            let unit = self.consume_name();
+            Token::Dimension(value, num_type, sign, unit)
+        } else {
+            Token::Number(value, num_type, sign)
+        }
+    }
+
+    fn byte_to_decimal_digit(&self, b: u8) -> Option<u32> {
+        if b.is_ascii_digit() {
+            Some((b - b'0') as u32)
+        } else {
+            None
+        }
+    }
+
+    /// https://drafts.csswg.org/css-syntax/#consume-number
+    fn consume_number(&mut self) -> (f64, NumberType, Option<char>) {
+        let mut num_type = NumberType::Integer;
+
+        let sign = match self.next_byte_unchecked() {
+            b'+' => {
+                self.advance(1);
+                Some('+')
+            }
+            b'-' => {
+                self.advance(1);
+                Some('-')
+            }
+            _ => None,
+        };
+
+        let mut int_part = 0.;
+
+        while let Some(digit) = self.byte_to_decimal_digit(self.next_byte_unchecked()) {
+            int_part = int_part * 10. + digit as f64;
+            self.advance(1);
+            if self.is_eof() {
+                break;
+            }
+        }
+
+        let mut fractional_part = 0.;
+        if self.has_at_least(1)
+            && self.next_byte_unchecked() == b'.'
+            && self.byte_at(1).is_ascii_digit()
+        {
+            num_type = NumberType::Number;
+            self.advance(1);
+            let mut factor = 0.1;
+            while let Some(digit) = self.byte_to_decimal_digit(self.next_byte_unchecked()) {
+                fractional_part += digit as f64 * factor;
+                factor *= 0.1;
+                self.advance(1);
+                if self.is_eof() {
+                    break;
+                }
+            }
+        }
+
+        let mut value =
+            (if matches!(sign, Some('-')) { -1. } else { 1. }) * (int_part + fractional_part);
+
+        if self.has_at_least(1)
+            && matches!(self.next_byte_unchecked(), b'e' | b'E')
+            && (self.byte_at(1).is_ascii_digit()
+                || (self.has_at_least(2)
+                    && matches!(self.byte_at(1), b'+' | b'-')
+                    && self.byte_at(2).is_ascii_digit()))
+        {
+            self.advance(1);
+            let sign = match self.next_byte_unchecked() {
+                b'+' => {
+                    self.advance(1);
+                    Some('+')
+                }
+                b'-' => {
+                    self.advance(1);
+                    Some('-')
+                }
+                _ => None,
+            };
+
+            let mut exponent = 0.;
+            while let Some(digit) = self.byte_to_decimal_digit(self.next_byte_unchecked()) {
+                exponent = exponent * 10. + digit as f64;
+                self.advance(1);
+                if self.is_eof() {
+                    break;
+                }
+            }
+            value *= f64::powf(
+                10.,
+                (if matches!(sign, Some('-')) { -1. } else { 1. }) * exponent,
+            );
+        }
+
+        (value, num_type, sign)
     }
 
     fn has_newline_at(&self, offset: usize) -> bool {
