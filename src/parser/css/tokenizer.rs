@@ -15,6 +15,7 @@ pub(crate) enum Token<'a> {
     Function(Cow<'a, str>),
     UnquotedURL(Cow<'a, str>),
     BadURL(Cow<'a, str>),
+    Comment(&'a str),
     SuffixMatch,
     Parenthesis,
     CloasParenthesis,
@@ -167,8 +168,51 @@ impl<'a> Tokenizer<'a> {
                     Token::Delim('-')
                 }
             }
+            b'.' => {
+                if self.has_at_least(1) && self.byte_at(1).is_ascii_digit() {
+                    self.consume_numeric()
+                } else {
+                    self.advance(1);
+                    Token::Delim('.')
+                }
+            }
+            b'/' => {
+                if self.start_with(b"/*") {
+                    Token::Comment(self.consume_comment())
+                } else {
+                    self.advance(1);
+                    Token::Delim('/')
+                }
+            }
+            b'0'..=b'9' => self.consume_numeric(),
             _ => todo!(),
         }
+    }
+
+    /// https://drafts.csswg.org/css-syntax/#consume-comment
+    fn consume_comment(&mut self) -> &'a str {
+        self.advance(2);
+        let start_pos = self.pos;
+        while !self.is_eof() {
+            match self.next_byte_unchecked() {
+                b'*' => {
+                    let end_pos = self.pos;
+                    self.advance(1);
+                    if self.next_byte() == Some(b'/') {
+                        self.advance(1);
+                        return self.slice(start_pos, end_pos);
+                    }
+                }
+                b'\n' | b'\x0C' | b'\r' => {
+                    self.consume_newline();
+                }
+                _ => {
+                    self.advance(1);
+                }
+            }
+        }
+
+        self.slice_from(start_pos)
     }
 
     /// https://drafts.csswg.org/css-syntax/#consume-ident-like-token
