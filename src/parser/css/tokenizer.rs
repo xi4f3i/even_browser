@@ -15,6 +15,7 @@ pub(crate) enum Token<'a> {
     Function(Cow<'a, str>),
     UnquotedURL(Cow<'a, str>),
     BadURL(Cow<'a, str>),
+    AtKeyword(Cow<'a, str>),
     Comment(&'a str),
     SuffixMatch,
     Parenthesis,
@@ -24,8 +25,18 @@ pub(crate) enum Token<'a> {
     Number(f64, NumberType, Option<char>),
     Dimension(f64, NumberType, Option<char>, Cow<'a, str>),
     Delim(char),
+    SquareBracketBlock,
+    CloseSquareBracket,
+    CurlyBracketBlock,
+    CloseCurlyBracket,
     Comma,
+    Colon,
+    Semicolon,
+    PrefixMatch,
+    DashMatch,
+    IncludeMatch,
     CDC,
+    CDO,
     EOF,
 }
 
@@ -185,7 +196,91 @@ impl<'a> Tokenizer<'a> {
                 }
             }
             b'0'..=b'9' => self.consume_numeric(),
-            _ => todo!(),
+            b':' => {
+                self.advance(1);
+                Token::Colon
+            }
+            b';' => {
+                self.advance(1);
+                Token::Semicolon
+            }
+            b'<' => {
+                if self.start_with(b"<!--") {
+                    self.advance(4);
+                    Token::CDO
+                } else {
+                    self.advance(1);
+                    Token::Delim('<')
+                }
+            }
+            b'@' => {
+                self.advance(1);
+                if self.is_ident_start() {
+                    Token::AtKeyword(self.consume_name())
+                } else {
+                    Token::Delim('@')
+                }
+            }
+            b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\0' => self.consume_ident_like(),
+            b'[' => {
+                self.advance(1);
+                Token::SquareBracketBlock
+            }
+            b'\\' => {
+                if !self.has_newline_at(1) {
+                    self.consume_ident_like()
+                } else {
+                    self.advance(1);
+                    Token::Delim('\\')
+                }
+            }
+            b']' => {
+                self.advance(1);
+                Token::CloseSquareBracket
+            }
+            b'^' => {
+                if self.start_with(b"^=") {
+                    self.advance(2);
+                    Token::PrefixMatch
+                } else {
+                    self.advance(1);
+                    Token::Delim('^')
+                }
+            }
+            b'{' => {
+                self.advance(1);
+                Token::CurlyBracketBlock
+            }
+            b'|' => {
+                if self.start_with(b"|=") {
+                    self.advance(2);
+                    Token::DashMatch
+                } else {
+                    self.advance(1);
+                    Token::Delim('|')
+                }
+            }
+            b'}' => {
+                self.advance(1);
+                Token::CloseCurlyBracket
+            }
+            b'~' => {
+                if self.start_with(b"~=") {
+                    self.advance(2);
+                    Token::IncludeMatch
+                } else {
+                    self.advance(1);
+                    Token::Delim('~')
+                }
+            }
+            _ => {
+                if !b.is_ascii() {
+                    self.consume_ident_like()
+                } else {
+                    self.advance(1);
+                    Token::Delim(b as char)
+                }
+            }
         }
     }
 
