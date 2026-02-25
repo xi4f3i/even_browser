@@ -1,18 +1,18 @@
-use crate::parser::css::tokenizer::Token;
+use crate::parser::css::Token;
 
 /// https://drafts.csswg.org/css-syntax/#css-tree
-struct Stylesheet<'a> {
-    rules: Vec<Rule<'a>>,
+pub(crate) struct Stylesheet<'a> {
+    pub(crate) rules: Vec<Rule<'a>>,
 }
 
 /// https://drafts.csswg.org/css-syntax/#css-rule
-enum Rule<'a> {
+pub(crate) enum Rule<'a> {
     At(AtRule<'a>),
     Qualified(QualifiedRule<'a>),
 }
 
 /// https://drafts.csswg.org/css-syntax/#at-rule
-struct AtRule<'a> {
+pub(crate) struct AtRule<'a> {
     name: String,
     prelude: Vec<ComponentValue<'a>>,
     declarations: Vec<Declaration<'a>>,
@@ -20,32 +20,32 @@ struct AtRule<'a> {
 }
 
 /// https://drafts.csswg.org/css-syntax/#qualified-rule
-struct QualifiedRule<'a> {
+pub(crate) struct QualifiedRule<'a> {
     prelude: Vec<ComponentValue<'a>>,
     declarations: Vec<Declaration<'a>>,
     children: Vec<Rule<'a>>,
 }
 
 /// https://drafts.csswg.org/css-syntax/#declaration
-struct Declaration<'a> {
+pub(crate) struct Declaration<'a> {
     name: String,
     values: Vec<ComponentValue<'a>>,
     unset: bool,
 }
 
 /// https://drafts.csswg.org/css-syntax/#component-value
-enum ComponentValue<'a> {
+pub(crate) enum ComponentValue<'a> {
     PreservedToken(Token<'a>),
     Function(Function<'a>),
     SimpleBlock(SimpleBlock<'a>),
 }
 
-struct Function<'a> {
+pub(crate) struct Function<'a> {
     name: String,
     values: Vec<ComponentValue<'a>>,
 }
 
-struct SimpleBlock<'a> {
+pub(crate) struct SimpleBlock<'a> {
     token: Token<'a>,
     values: Vec<ComponentValue<'a>>,
 }
